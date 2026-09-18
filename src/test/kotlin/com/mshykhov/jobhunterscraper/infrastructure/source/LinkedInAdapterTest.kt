@@ -139,13 +139,59 @@ class LinkedInAdapterTest {
         assertFalse(page.complete)
         assertEquals("0", page.checkpoint["categoryIndex"])
         assertEquals("0", page.checkpoint["locationIndex"])
-        assertEquals(32, page.checkpoint.getValue("processed").length)
+        assertEquals(32, page.checkpoint.getValue("processed0").length)
         assertEquals(listOf("https://www.linkedin.com/jobs/view/101"), page.jobs.map { it.url })
 
-        val finalPage = adapter.fetch(ScrapeContext(SearchCriteria(listOf("Kotlin")), checkpoint = page.checkpoint))
+        val legacyCheckpoint = page.checkpoint - "processed0" + ("processed" to page.checkpoint.getValue("processed0"))
+        val finalPage = adapter.fetch(ScrapeContext(SearchCriteria(listOf("Kotlin")), checkpoint = legacyCheckpoint))
 
         assertTrue(finalPage.complete)
         assertEquals(listOf("https://www.linkedin.com/jobs/view/102"), finalPage.jobs.map { it.url })
+    }
+
+    @Test
+    fun `splits a large processed checkpoint into API bounded values`() {
+        every { httpClient.post(match { it.endsWith("/jobs/search") }, any(), any(), any()) } returns fullSearchPage()
+        every { httpClient.post(match { it.endsWith("/jobs/enrich") }, any(), any(), any()) } returnsMany
+            listOf(
+                enrichmentResponse(1..20),
+                enrichmentResponse(21..40),
+                enrichmentResponse(41..60),
+            )
+        every { jobHunterClient.checkJobs(any()) } answers {
+            JobCheckResult(
+                newUrls = arg<List<JobCheckRequest>>(0).map { it.url },
+                updatedUrls = emptyList(),
+                unchangedUrls = emptyList(),
+            )
+        }
+        every { jobHunterClient.proxies(JobSource.LINKEDIN) } returns
+            (1..20).map { id ->
+                SourceProxy("http://user:secret@proxy$id.test:8080", "proxy$id.test", 8080, "user", "secret")
+            }
+        val adapter = LinkedInAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(), clock)
+        var context = ScrapeContext(SearchCriteria(listOf("Kotlin")))
+
+        repeat(3) {
+            val page = adapter.fetch(context)
+            context = context.copy(checkpoint = page.checkpoint)
+        }
+
+        assertEquals(
+            50,
+            context.checkpoint
+                .getValue("processed0")
+                .split(',')
+                .size,
+        )
+        assertEquals(
+            10,
+            context.checkpoint
+                .getValue("processed1")
+                .split(',')
+                .size,
+        )
+        assertTrue(context.checkpoint.values.all { it.length <= 2048 })
     }
 
     @Test
@@ -283,6 +329,11 @@ class LinkedInAdapterTest {
           ]
         }
         """.trimIndent()
+
+    private fun enrichmentResponse(jobIds: IntRange): String =
+        jobIds.joinToString(prefix = "{\"results\":[", postfix = "]}") { jobId ->
+            """{"url":"https://www.linkedin.com/jobs/view/$jobId","status":"success","data":{"description":"Full"}}"""
+        }
 
     private fun fullSearchPage(): String =
         (1..100).joinToString(prefix = "[", postfix = "]") { id ->

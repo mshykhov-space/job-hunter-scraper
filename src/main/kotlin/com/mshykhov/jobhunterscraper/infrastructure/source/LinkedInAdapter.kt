@@ -68,8 +68,7 @@ class LinkedInAdapter(
                     CHECKPOINT_CATEGORY to position.categoryIndex.toString(),
                     CHECKPOINT_LOCATION to position.locationIndex.toString(),
                     CHECKPOINT_OFFSET to position.offset.toString(),
-                    CHECKPOINT_PROCESSED to nextProcessed.joinToString(","),
-                ),
+                ) + processedCheckpoint(nextProcessed),
                 complete = false,
                 fetchedCount = searchJobs.size,
             )
@@ -309,14 +308,27 @@ class LinkedInAdapter(
     }
 
     private fun processedHashes(context: ScrapeContext): Set<String> {
-        val raw = context.checkpoint[CHECKPOINT_PROCESSED].orEmpty()
-        if (raw.isBlank()) return emptySet()
-        val hashes = raw.split(',').toSet()
-        if (hashes.size > PAGE_SIZE || hashes.any { !PROCESSED_HASH.matches(it) }) {
+        val legacy = context.checkpoint[CHECKPOINT_PROCESSED]
+        val chunks =
+            context.checkpoint
+                .filterKeys(PROCESSED_CHUNK::matches)
+                .toSortedMap()
+                .values
+        if (legacy != null && chunks.isNotEmpty()) throw SourceSchemaException("Invalid LinkedIn processed checkpoint")
+        val values = legacy?.let(::listOf) ?: chunks
+        if (values.isEmpty()) return emptySet()
+        val hashes = values.flatMap { it.split(',') }
+        if (hashes.size > PAGE_SIZE || hashes.toSet().size != hashes.size || hashes.any { !PROCESSED_HASH.matches(it) }) {
             throw SourceSchemaException("Invalid LinkedIn processed checkpoint")
         }
-        return hashes
+        return hashes.toSet()
     }
+
+    private fun processedCheckpoint(hashes: List<String>): Map<String, String> =
+        hashes
+            .chunked(PROCESSED_HASHES_PER_ENTRY)
+            .mapIndexed { index, chunk -> "$CHECKPOINT_PROCESSED$index" to chunk.joinToString(",") }
+            .toMap()
 
     private fun nextPage(
         context: ScrapeContext,
@@ -405,7 +417,9 @@ class LinkedInAdapter(
         const val MAX_HOURS_OLD = 24L * 30
         const val SECONDS_PER_HOUR = 3600L
         const val HASH_BYTES = 16
+        const val PROCESSED_HASHES_PER_ENTRY = 50
         val PROCESSED_HASH = Regex("[0-9a-f]{32}")
+        val PROCESSED_CHUNK = Regex("${CHECKPOINT_PROCESSED}[0-1]")
         val TERMINAL_ENRICHMENT_STATUSES = setOf("success", "no_data", "not_found")
         val MAP_TYPE = object : TypeReference<Map<String, Any?>>() {}
     }
