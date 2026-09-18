@@ -68,6 +68,40 @@ class SourceRunWorkerTest {
     }
 
     @Test
+    fun `filters publication window without changing page accounting`() {
+        val since = FIXED_CLOCK.instant().minusSeconds(3600)
+        val jobs =
+            listOf(
+                job(1, FIXED_CLOCK.instant().minusSeconds(60).toString()),
+                job(2, since.minusMillis(1).toString()),
+                job(3, since.toString()),
+                job(
+                    4,
+                    FIXED_CLOCK
+                        .instant()
+                        .atZone(ZoneOffset.UTC)
+                        .toLocalDate()
+                        .toString(),
+                ),
+                job(5, "recently"),
+            )
+        val adapter = FakeAdapter { ScrapePage(jobs, mapOf("page" to "2"), complete = true, fetchedCount = 10) }
+        val client = FakeClient(claim(since))
+
+        worker(adapter, client).poll(JobSource.DOU)
+
+        assertEquals(
+            listOf("Job 1", "Job 3", "Job 4", "Job 5"),
+            client.batches
+                .single()
+                .jobs
+                .map { it.title },
+        )
+        assertEquals(10, client.batches.single().fetchedCount)
+        assertEquals(mapOf("page" to "2"), client.batches.single().checkpoint)
+    }
+
+    @Test
     fun `heartbeat lease loss during fetch fences batch and failure writes`() {
         val registry = observationRegistry()
         val clock = MutableClock(FIXED_CLOCK.instant())
@@ -197,6 +231,7 @@ class SourceRunWorkerTest {
             availability,
             BatchIdFactory(jacksonObjectMapper()),
             BatchPartitioner(jacksonObjectMapper(), properties),
+            PublicationWindow(FIXED_CLOCK),
         )
 
     private fun properties(heartbeatInterval: Duration = Duration.ofHours(1)) =
@@ -216,24 +251,27 @@ class SourceRunWorkerTest {
             )
         }
 
-    private fun claim() =
+    private fun claim(since: Instant? = null) =
         RunClaim(
             UUID.randomUUID(),
             UUID.randomUUID(),
             JobSource.DOU,
             SearchCriteria(listOf("JAVA")),
             mapOf("page" to "1"),
-            null,
+            since,
             Instant.now().plusSeconds(300),
         )
 
-    private fun job(index: Int) =
-        ScrapedJob(
-            title = "Job $index",
-            url = "https://example.test/$index",
-            source = JobSource.DOU,
-            category = "JAVA",
-        )
+    private fun job(
+        index: Int,
+        publishedAt: String? = null,
+    ) = ScrapedJob(
+        title = "Job $index",
+        url = "https://example.test/$index",
+        source = JobSource.DOU,
+        publishedAt = publishedAt,
+        category = "JAVA",
+    )
 
     private class FakeAdapter(
         private val response: (ScrapeContext) -> ScrapePage,

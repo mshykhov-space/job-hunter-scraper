@@ -28,6 +28,7 @@ class SourceRunWorker(
     private val availability: ScraperAvailability,
     private val batchIdFactory: BatchIdFactory,
     private val batchPartitioner: BatchPartitioner,
+    private val publicationWindow: PublicationWindow,
 ) {
     private val adapters = adapters.associateBy(SourceAdapter::source)
 
@@ -126,7 +127,8 @@ class SourceRunWorker(
             val page = fetchPage(claim, adapter, context, pageNumber)
             validatePage(claim.source, context, page)
             checkHeartbeat(heartbeatFailure)
-            deliverPage(claim, context, page, heartbeatFailure)
+            val acceptedPage = page.copy(jobs = page.jobs.filter { publicationWindow.accepts(it.publishedAt, claim.since) })
+            deliverPage(claim, context, acceptedPage, heartbeatFailure)
             context = context.copy(checkpoint = page.checkpoint)
             if (page.complete) {
                 checkHeartbeat(heartbeatFailure)
