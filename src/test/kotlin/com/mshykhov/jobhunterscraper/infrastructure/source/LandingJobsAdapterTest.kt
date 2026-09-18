@@ -47,6 +47,17 @@ class LandingJobsAdapterTest {
     }
 
     @Test
+    fun `accepts remote offer when locations is omitted`() {
+        val response =
+            """[{"id":4,"title":"Remote Java Developer","url":"https://landing.jobs/at/acme/remote-java-developer","tags":["Java"],"remote":true,"published_at":"2026-09-18T12:00:00Z"}]"""
+
+        val job = adapter(RecordingSourceHttpClient(getResponse = { response })).fetch(context()).jobs.single()
+
+        assertEquals(true, job.remote)
+        assertEquals("Remote", job.location)
+    }
+
+    @Test
     fun `fails rather than truncating a full final allowed page`() {
         val mapper = jacksonObjectMapper()
         val offer = mapper.readTree(fixture("landingjobs/page.json")).first()

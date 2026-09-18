@@ -57,7 +57,16 @@ class LandingJobsAdapter(
                 if (!tag.isTextual) throw SourceSchemaException("landingjobs tag must be text")
                 tag.asText()
             }
-        val locations = offer.requiredArray("locations", source.id)
+        val locations =
+            offer.get("locations")?.let { value ->
+                if (value.isNull) {
+                    emptyList()
+                } else if (value.isArray) {
+                    value.toList()
+                } else {
+                    throw SourceSchemaException("landingjobs response has invalid array 'locations'")
+                }
+            } ?: emptyList()
         val category = matchCategory(context.criteria.categories, tags) ?: return null
         val remote =
             offer.get("remote")?.let { value ->
