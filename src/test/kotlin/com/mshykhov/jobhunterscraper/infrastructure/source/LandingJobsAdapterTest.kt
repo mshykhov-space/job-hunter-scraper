@@ -1,6 +1,7 @@
 package com.mshykhov.jobhunterscraper.infrastructure.source
 
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import com.mshykhov.jobhunterscraper.application.PublicationWindow
 import com.mshykhov.jobhunterscraper.application.SourceSchemaException
 import com.mshykhov.jobhunterscraper.application.model.ScrapeContext
 import com.mshykhov.jobhunterscraper.application.model.SearchCriteria
@@ -10,6 +11,9 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.time.Clock
+import java.time.Instant
+import java.time.ZoneOffset
 
 class LandingJobsAdapterTest {
     @Test
@@ -58,6 +62,15 @@ class LandingJobsAdapterTest {
     }
 
     @Test
+    fun `filters catalogue entries by publication window`() {
+        val page =
+            adapter(RecordingSourceHttpClient(getResponse = { fixture("landingjobs/page.json") }))
+                .fetch(context(since = Instant.parse("2026-09-18T11:30:00Z")))
+
+        assertEquals(listOf("Senior Java Developer"), page.jobs.map { it.title })
+    }
+
+    @Test
     fun `fails rather than truncating a full final allowed page`() {
         val mapper = jacksonObjectMapper()
         val offer = mapper.readTree(fixture("landingjobs/page.json")).first()
@@ -67,13 +80,19 @@ class LandingJobsAdapterTest {
                 RecordingSourceHttpClient(getResponse = { fullPage }),
                 mapper,
                 ScraperProperties(maxPages = 1),
+                publicationWindow(),
             )
 
         assertThrows(SourceSchemaException::class.java) { adapter.fetch(context()) }
     }
 
-    private fun adapter(client: RecordingSourceHttpClient) = LandingJobsAdapter(client, jacksonObjectMapper(), ScraperProperties())
+    private fun adapter(client: RecordingSourceHttpClient) =
+        LandingJobsAdapter(client, jacksonObjectMapper(), ScraperProperties(), publicationWindow())
 
-    private fun context(remoteOnly: Boolean = false) =
-        ScrapeContext(SearchCriteria(categories = listOf("Java", "Kotlin"), remoteOnly = remoteOnly))
+    private fun context(
+        remoteOnly: Boolean = false,
+        since: Instant? = null,
+    ) = ScrapeContext(SearchCriteria(categories = listOf("Java", "Kotlin"), remoteOnly = remoteOnly), since = since)
+
+    private fun publicationWindow() = PublicationWindow(Clock.fixed(Instant.parse("2026-09-18T12:30:00Z"), ZoneOffset.UTC))
 }

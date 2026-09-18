@@ -2,6 +2,7 @@ package com.mshykhov.jobhunterscraper.infrastructure.source
 
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.mshykhov.jobhunterscraper.application.PublicationWindow
 import com.mshykhov.jobhunterscraper.application.SourceAdapter
 import com.mshykhov.jobhunterscraper.application.SourceSchemaException
 import com.mshykhov.jobhunterscraper.application.model.JobSource
@@ -17,6 +18,7 @@ class JustJoinItAdapter(
     private val httpClient: SourceHttpClient,
     private val objectMapper: ObjectMapper,
     private val properties: ScraperProperties,
+    private val publicationWindow: PublicationWindow,
 ) : SourceAdapter {
     override val source = JobSource.JUSTJOINIT
 
@@ -45,8 +47,13 @@ class JustJoinItAdapter(
             throw SourceSchemaException("justjoinit response has an invalid next cursor")
         }
 
+        val windowComplete =
+            data.any { offer ->
+                if (!offer.isObject) throw SourceSchemaException("justjoinit offer must be an object")
+                publicationWindow.isPreciselyOlder(offer.requiredText("publishedAt", source.id), context.since)
+            }
         val jobs = data.mapNotNull { mapOffer(it, context) }
-        val hasNext = nextCursor < totalItems
+        val hasNext = nextCursor < totalItems && !windowComplete
         if (hasNext && (data.isEmpty || nextCursor <= offset)) {
             throw SourceSchemaException("justjoinit response has a non-advancing cursor")
         }
@@ -71,6 +78,7 @@ class JustJoinItAdapter(
         val workplaceType = offer.requiredText("workplaceType", source.id)
         val experienceLevel = offer.requiredText("experienceLevel", source.id)
         val publishedAt = offer.requiredText("publishedAt", source.id)
+        if (!publicationWindow.accepts(publishedAt, context.since)) return null
         val skills =
             offer.requiredArray("requiredSkills", source.id).map { skill ->
                 if (!skill.isObject) throw SourceSchemaException("justjoinit skill must be an object")

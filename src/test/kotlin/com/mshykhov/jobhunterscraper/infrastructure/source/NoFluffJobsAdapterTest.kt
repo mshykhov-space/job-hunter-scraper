@@ -1,6 +1,7 @@
 package com.mshykhov.jobhunterscraper.infrastructure.source
 
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import com.mshykhov.jobhunterscraper.application.PublicationWindow
 import com.mshykhov.jobhunterscraper.application.SourceSchemaException
 import com.mshykhov.jobhunterscraper.application.model.ScrapeContext
 import com.mshykhov.jobhunterscraper.application.model.SearchCriteria
@@ -10,6 +11,9 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.time.Clock
+import java.time.Instant
+import java.time.ZoneOffset
 
 class NoFluffJobsAdapterTest {
     @Test
@@ -91,15 +95,31 @@ class NoFluffJobsAdapterTest {
     }
 
     @Test
+    fun `filters old listings before detail fetch`() {
+        val client = RecordingSourceHttpClient(postResponse = { _, _ -> fixture("nofluffjobs/search.json") })
+
+        val page = adapter(client).fetch(context(since = Instant.parse("2026-09-18T10:30:00Z")))
+
+        assertTrue(page.jobs.isEmpty())
+        assertTrue(client.getUrls.isEmpty())
+    }
+
+    @Test
     fun `fails when upstream reports more pages than the configured coverage cap`() {
         val client = RecordingSourceHttpClient(postResponse = { _, _ -> fixture("nofluffjobs/search.json") })
-        val adapter = NoFluffJobsAdapter(client, jacksonObjectMapper(), ScraperProperties(maxPages = 1))
+        val adapter = NoFluffJobsAdapter(client, jacksonObjectMapper(), ScraperProperties(maxPages = 1), publicationWindow())
 
         assertThrows(SourceSchemaException::class.java) { adapter.fetch(context()) }
         assertTrue(client.getUrls.isEmpty())
     }
 
-    private fun adapter(client: RecordingSourceHttpClient) = NoFluffJobsAdapter(client, jacksonObjectMapper(), ScraperProperties())
+    private fun adapter(client: RecordingSourceHttpClient) =
+        NoFluffJobsAdapter(client, jacksonObjectMapper(), ScraperProperties(), publicationWindow())
 
-    private fun context(remoteOnly: Boolean = false) = ScrapeContext(SearchCriteria(categories = listOf("Java"), remoteOnly = remoteOnly))
+    private fun context(
+        remoteOnly: Boolean = false,
+        since: Instant? = null,
+    ) = ScrapeContext(SearchCriteria(categories = listOf("Java"), remoteOnly = remoteOnly), since = since)
+
+    private fun publicationWindow() = PublicationWindow(Clock.fixed(Instant.parse("2026-09-18T12:30:00Z"), ZoneOffset.UTC))
 }

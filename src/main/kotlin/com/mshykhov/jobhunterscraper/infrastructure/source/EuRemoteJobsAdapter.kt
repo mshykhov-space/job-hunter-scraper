@@ -2,6 +2,7 @@ package com.mshykhov.jobhunterscraper.infrastructure.source
 
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.mshykhov.jobhunterscraper.application.PublicationWindow
 import com.mshykhov.jobhunterscraper.application.SourceAdapter
 import com.mshykhov.jobhunterscraper.application.SourceSchemaException
 import com.mshykhov.jobhunterscraper.application.model.JobSource
@@ -19,6 +20,7 @@ class EuRemoteJobsAdapter(
     private val httpClient: SourceHttpClient,
     private val objectMapper: ObjectMapper,
     private val properties: ScraperProperties,
+    private val publicationWindow: PublicationWindow,
 ) : SourceAdapter {
     override val source = JobSource.EUREMOTEJOBS
 
@@ -39,7 +41,7 @@ class EuRemoteJobsAdapter(
             resolveTagId(category)
                 ?: return advanceEmptyCategory(categoryIndex, context.criteria.categories.size)
 
-        val root = objectMapper.readSourceTree(httpClient.get(listingsUrl(tagId, page)), source.id)
+        val root = objectMapper.readSourceTree(httpClient.get(listingsUrl(tagId, page, context)), source.id)
         if (!root.isObject) throw SourceSchemaException("euremotejobs listings response must be an object")
         val status = root.requiredInt("status", source.id)
         if (status !in 200..299) throw SourceSchemaException("euremotejobs listings returned status $status")
@@ -55,7 +57,7 @@ class EuRemoteJobsAdapter(
             throw SourceSchemaException("euremotejobs response page exceeds reported total pages")
         }
 
-        val jobs = body.map { mapListing(it, category, tagId) }
+        val jobs = body.mapNotNull { mapListing(it, category, tagId, context) }
         val categoryComplete = page >= totalPages
         val nextCategoryIndex = if (categoryComplete) categoryIndex + 1 else categoryIndex
         val complete = nextCategoryIndex >= context.criteria.categories.size
@@ -86,8 +88,13 @@ class EuRemoteJobsAdapter(
         listing: JsonNode,
         category: String,
         tagId: Int,
-    ): ScrapedJob {
+        context: ScrapeContext,
+    ): ScrapedJob? {
         if (!listing.isObject) throw SourceSchemaException("euremotejobs listing must be an object")
+        val publishedAt =
+            listing.optionalText("date_gmt", source.id)?.let { "${it}Z" }
+                ?: listing.optionalText("date", source.id)
+        if (!publicationWindow.accepts(publishedAt, context.since)) return null
         val title = listing.requiredObject("title", source.id).requiredText("rendered", source.id)
         val content = listing.requiredObject("content", source.id).requiredText("rendered", source.id)
         val meta = listing.requiredObject("meta", source.id)
@@ -113,7 +120,7 @@ class EuRemoteJobsAdapter(
             source = source,
             location = regions.joinToString(", ").takeIf(String::isNotBlank),
             remote = true,
-            publishedAt = listing.optionalText("date", source.id),
+            publishedAt = publishedAt,
             rawData =
                 mapOf(
                     "id" to listing.get("id")?.takeIf(JsonNode::isIntegralNumber)?.longValue(),
@@ -141,9 +148,12 @@ class EuRemoteJobsAdapter(
     private fun listingsUrl(
         tagId: Int,
         page: Int,
-    ): String =
-        "${baseUrl()}/job-listings?per_page=$PAGE_SIZE&page=$page&_embed=1&_envelope=1" +
-            "&job_listing_tag=$tagId&orderby=date&order=desc"
+        context: ScrapeContext,
+    ): String {
+        val after = context.since?.let { "&after=${encode(it.toString())}" }.orEmpty()
+        return "${baseUrl()}/job-listings?per_page=$PAGE_SIZE&page=$page&_embed=1&_envelope=1" +
+            "&job_listing_tag=$tagId&orderby=date&order=desc$after"
+    }
 
     private fun baseUrl(): String = properties.endpoint(source, DEFAULT_ENDPOINT).trimEnd('/')
 

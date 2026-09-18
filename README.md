@@ -57,6 +57,23 @@ status. Pagination and schema failures fail the run instead of reporting an
 incomplete traversal as successful. Source response fixtures cover parser behavior;
 production egress and current source schemas must also be checked before cutover.
 
+Sources apply the API-provided publication window before detail enrichment:
+
+| Source | Publication value | Window and pagination behavior |
+| --- | --- | --- |
+| `justjoinit` | ISO `publishedAt` | Requests `sortBy=publishedAt&orderBy=descending`, stops after the first page crossing the boundary, and fetches details only for accepted jobs. |
+| `nofluffjobs` | `posted` epoch milliseconds | Search results use relevance ordering, so all reported listing pages are checked; old listings never trigger detail requests. |
+| `landingjobs` | ISO `published_at` | The active catalogue is unordered and filtered locally; pagination continues until a short page. |
+| `euremotejobs` | WordPress UTC `date_gmt` | Sends `after`, `orderby=date`, and `order=desc`; normalizes UTC to an instant and filters the response defensively. |
+| `linkedin` | JobSpy ISO timestamp | Requests `hours_old=1` and filters precise candidates before enrichment. |
+| `dou` | RFC 1123 timestamp | Normalizes publication time to an instant and filters each listing before enrichment. |
+| `web3career` | ISO offset timestamp | Normalizes offsets and stops after a latest-first page contains only precise timestamps older than the window. |
+| `djinni` | Offsetless local timestamp | Uses UTC calendar-day overlap because sub-day precision is unavailable; pagination is not stopped early. |
+
+Unknown or malformed timestamps remain eligible to avoid silently losing jobs. A
+date-only value is eligible only when its UTC calendar day intersects the claimed
+window.
+
 ## Structure and verification
 
 `application/` contains execution and contracts; `infrastructure/` contains source

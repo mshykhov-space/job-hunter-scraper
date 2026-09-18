@@ -2,6 +2,7 @@ package com.mshykhov.jobhunterscraper.infrastructure.source
 
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.mshykhov.jobhunterscraper.application.PublicationWindow
 import com.mshykhov.jobhunterscraper.application.SourceAdapter
 import com.mshykhov.jobhunterscraper.application.SourceSchemaException
 import com.mshykhov.jobhunterscraper.application.model.JobSource
@@ -17,6 +18,7 @@ class LandingJobsAdapter(
     private val httpClient: SourceHttpClient,
     private val objectMapper: ObjectMapper,
     private val properties: ScraperProperties,
+    private val publicationWindow: PublicationWindow,
 ) : SourceAdapter {
     override val source = JobSource.LANDINGJOBS
 
@@ -52,6 +54,7 @@ class LandingJobsAdapter(
         val title = offer.requiredText("title", source.id)
         val url = offer.requiredText("url", source.id)
         val publishedAt = offer.requiredText("published_at", source.id)
+        if (!publicationWindow.accepts(publishedAt, context.since)) return null
         val tags =
             offer.requiredArray("tags", source.id).map { tag ->
                 if (!tag.isTextual) throw SourceSchemaException("landingjobs tag must be text")

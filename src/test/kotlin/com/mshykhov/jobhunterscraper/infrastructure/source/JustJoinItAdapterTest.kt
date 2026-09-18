@@ -1,6 +1,7 @@
 package com.mshykhov.jobhunterscraper.infrastructure.source
 
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import com.mshykhov.jobhunterscraper.application.PublicationWindow
 import com.mshykhov.jobhunterscraper.application.SourceSchemaException
 import com.mshykhov.jobhunterscraper.application.model.ScrapeContext
 import com.mshykhov.jobhunterscraper.application.model.SearchCriteria
@@ -9,6 +10,9 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.time.Clock
+import java.time.Instant
+import java.time.ZoneOffset
 
 class JustJoinItAdapterTest {
     @Test
@@ -71,6 +75,7 @@ class JustJoinItAdapterTest {
                 RecordingSourceHttpClient(getResponse = { response.toString() }),
                 mapper,
                 ScraperProperties(maxPages = 1),
+                publicationWindow(),
             )
 
         assertThrows(SourceSchemaException::class.java) { adapter.fetch(context()) }
@@ -106,6 +111,17 @@ class JustJoinItAdapterTest {
     }
 
     @Test
+    fun `stops a published-at sorted feed and skips old detail requests`() {
+        val client = successfulClient()
+
+        val page = adapter(client).fetch(context(Instant.parse("2026-09-18T11:30:00Z")))
+
+        assertEquals(listOf("Senior Backend Engineer"), page.jobs.map { it.title })
+        assertTrue(page.complete)
+        assertEquals(2, client.getUrls.size)
+    }
+
+    @Test
     fun `rejects an empty detail description`() {
         val client =
             RecordingSourceHttpClient(
@@ -117,7 +133,8 @@ class JustJoinItAdapterTest {
         assertThrows(SourceSchemaException::class.java) { adapter(client).fetch(context()) }
     }
 
-    private fun adapter(client: RecordingSourceHttpClient) = JustJoinItAdapter(client, jacksonObjectMapper(), ScraperProperties())
+    private fun adapter(client: RecordingSourceHttpClient) =
+        JustJoinItAdapter(client, jacksonObjectMapper(), ScraperProperties(), publicationWindow())
 
     private fun successfulClient() =
         RecordingSourceHttpClient(
@@ -126,5 +143,7 @@ class JustJoinItAdapterTest {
             },
         )
 
-    private fun context() = ScrapeContext(SearchCriteria(categories = listOf("Java", "Kotlin")))
+    private fun context(since: Instant? = null) = ScrapeContext(SearchCriteria(categories = listOf("Java", "Kotlin")), since = since)
+
+    private fun publicationWindow() = PublicationWindow(Clock.fixed(Instant.parse("2026-09-18T12:30:00Z"), ZoneOffset.UTC))
 }

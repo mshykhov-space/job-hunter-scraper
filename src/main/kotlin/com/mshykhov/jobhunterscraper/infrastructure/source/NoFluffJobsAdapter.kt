@@ -2,6 +2,7 @@ package com.mshykhov.jobhunterscraper.infrastructure.source
 
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.mshykhov.jobhunterscraper.application.PublicationWindow
 import com.mshykhov.jobhunterscraper.application.SourceAdapter
 import com.mshykhov.jobhunterscraper.application.SourceSchemaException
 import com.mshykhov.jobhunterscraper.application.model.JobSource
@@ -18,6 +19,7 @@ class NoFluffJobsAdapter(
     private val httpClient: SourceHttpClient,
     private val objectMapper: ObjectMapper,
     private val properties: ScraperProperties,
+    private val publicationWindow: PublicationWindow,
 ) : SourceAdapter {
     override val source = JobSource.NOFLUFFJOBS
 
@@ -76,6 +78,8 @@ class NoFluffJobsAdapter(
         val slug = posting.requiredText("url", source.id)
         val technology = posting.optionalText("technology", source.id)
         val tileValues = parseTileValues(posting)
+        val publishedAt = parsePublishedAt(posting.get("posted"))
+        if (!publicationWindow.accepts(publishedAt, context.since)) return null
         val category = matchCategory(context.criteria.categories, listOfNotNull(title, technology) + tileValues) ?: return null
         val locationNode = posting.get("location")
         if (locationNode != null && !locationNode.isNull && !locationNode.isObject) {
@@ -99,7 +103,7 @@ class NoFluffJobsAdapter(
             salary = parseSalary(posting.get("salary")),
             location = parseLocation(locationNode, remote),
             remote = remote,
-            publishedAt = parsePublishedAt(posting.get("posted")),
+            publishedAt = publishedAt,
             rawData =
                 mapOf(
                     "id" to posting.optionalText("id", source.id),
