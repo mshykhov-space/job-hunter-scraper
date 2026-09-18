@@ -44,7 +44,7 @@ class Web3CareerAdapterTest {
 
         assertFalse(page.complete)
         assertEquals(mapOf("categoryIndex" to "0", "page" to "2"), page.checkpoint)
-        verify { httpClient.get(any(), any(), match { it?.host == "proxy.test" }) }
+        verify { httpClient.get("https://web3.career/kotlin+remote-jobs", any(), match { it?.host == "proxy.test" }) }
         assertEquals("https://web3.career/senior-kotlin-engineer-acme/501", page.jobs.single().url)
         assertEquals("120000-160000 USD/YEAR", page.jobs.single().salary)
         assertEquals("Europe, Ukraine", page.jobs.single().location)
@@ -61,6 +61,22 @@ class Web3CareerAdapterTest {
         assertFailsWith<SourceSchemaException> {
             adapter.fetch(ScrapeContext(SearchCriteria(listOf("Kotlin"))))
         }
+    }
+
+    @Test
+    fun `adds the page query after the canonical first page`() {
+        every { httpClient.get(any(), any(), any()) } returns fixture("fixtures/web3career/page.html")
+        every { jobHunterClient.proxies(JobSource.WEB3CAREER) } returns emptyList()
+        val adapter = Web3CareerAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(maxPages = 10))
+
+        adapter.fetch(
+            ScrapeContext(
+                SearchCriteria(listOf("Kotlin"), remoteOnly = true),
+                checkpoint = mapOf("categoryIndex" to "0", "page" to "2"),
+            ),
+        )
+
+        verify { httpClient.get("https://web3.career/kotlin+remote-jobs?page=2", any(), null) }
     }
 
     private fun fixture(path: String): String = checkNotNull(javaClass.classLoader.getResource(path)).readText()

@@ -33,7 +33,8 @@ class Web3CareerAdapter(
         val slug = category.lowercase(Locale.ROOT).trim().replace(WHITESPACE, "-")
         val remoteSegment = if (context.criteria.remoteOnly) "+remote" else ""
         val endpoint = properties.endpoint(source, DEFAULT_ENDPOINT).removeSuffix("/")
-        val url = "$endpoint/$slug$remoteSegment-jobs?page=${position.page}"
+        val pageQuery = if (position.page == 1) "" else "?page=${position.page}"
+        val url = "$endpoint/$slug$remoteSegment-jobs$pageQuery"
         val proxy = jobHunterClient.proxies(source).firstOrNull()
         val headers = DEFAULT_HEADERS + (proxy?.fingerprint ?: emptyMap())
         val document = Jsoup.parse(httpClient.get(url, headers, proxy?.endpoint()))
