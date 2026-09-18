@@ -21,6 +21,7 @@ import java.security.MessageDigest
 import java.time.Clock
 import java.time.Duration
 import java.util.HexFormat
+import java.util.concurrent.atomic.AtomicReference
 
 @Component
 class LinkedInAdapter(
@@ -31,6 +32,7 @@ class LinkedInAdapter(
     private val clock: Clock,
 ) : SourceAdapter {
     override val source = JobSource.LINKEDIN
+    private val searchCache = AtomicReference<Pair<ScrapeContext, List<JsonNode>>?>()
 
     override fun fetch(context: ScrapeContext): ScrapePage {
         if (context.criteria.categories.isEmpty()) return ScrapePage(emptyList(), emptyMap(), complete = true)
@@ -40,16 +42,11 @@ class LinkedInAdapter(
         val location = locations[position.locationIndex]
         val endpoint = properties.endpoint(source, DEFAULT_ENDPOINT).removeSuffix("/")
         val processedHashes = processedHashes(context)
+        val cacheKey = cacheKey(context, position)
         val hoursOld = hoursOld(context)
         val proxies = jobHunterClient.proxies(source)
         if (proxies.isEmpty()) throw SourceSchemaException("LinkedIn search requires at least one proxy")
-        val searchJobs =
-            parseSearch(
-                httpClient.post(
-                    "$endpoint/jobs/search",
-                    searchBody(category, location, context.criteria.remoteOnly, hoursOld, position.offset, proxies),
-                ),
-            )
+        val searchJobs = search(cacheKey, processedHashes, endpoint, category, location, hoursOld, position.offset, proxies)
         if (searchJobs.size > PAGE_SIZE) {
             throw SourceSchemaException("LinkedIn search returned more than the requested $PAGE_SIZE results")
         }
@@ -73,8 +70,45 @@ class LinkedInAdapter(
                 fetchedCount = searchJobs.size,
             )
         }
+        searchCache.set(null)
         return nextPage(context, position, locations.size, enrichment.jobs, searchJobs.size)
     }
+
+    private fun search(
+        cacheKey: ScrapeContext,
+        processedHashes: Set<String>,
+        endpoint: String,
+        category: String,
+        location: String,
+        hoursOld: Int,
+        offset: Int,
+        proxies: List<SourceProxy>,
+    ): List<JsonNode> {
+        val cached = searchCache.get()
+        if (processedHashes.isNotEmpty() && cached?.first == cacheKey) return cached.second
+        val jobs =
+            parseSearch(
+                httpClient.post(
+                    "$endpoint/jobs/search",
+                    searchBody(category, location, cacheKey.criteria.remoteOnly, hoursOld, offset, proxies),
+                ),
+            )
+        searchCache.set(cacheKey to jobs)
+        return jobs
+    }
+
+    private fun cacheKey(
+        context: ScrapeContext,
+        position: Position,
+    ): ScrapeContext =
+        context.copy(
+            checkpoint =
+                mapOf(
+                    CHECKPOINT_CATEGORY to position.categoryIndex.toString(),
+                    CHECKPOINT_LOCATION to position.locationIndex.toString(),
+                    CHECKPOINT_OFFSET to position.offset.toString(),
+                ),
+        )
 
     private fun searchBody(
         category: String,
@@ -413,7 +447,7 @@ class LinkedInAdapter(
         const val PAGE_SIZE = 100
         const val LINKEDIN_OFFSET_LIMIT = 1000
         const val MAX_ENRICHMENT_CHUNK = 20
-        const val MIN_HOURS_OLD = 24
+        const val MIN_HOURS_OLD = 1
         const val MAX_HOURS_OLD = 24L * 30
         const val SECONDS_PER_HOUR = 3600L
         const val HASH_BYTES = 16

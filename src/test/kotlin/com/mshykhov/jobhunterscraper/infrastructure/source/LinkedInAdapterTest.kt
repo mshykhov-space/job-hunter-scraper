@@ -143,10 +143,12 @@ class LinkedInAdapterTest {
         assertEquals(listOf("https://www.linkedin.com/jobs/view/101"), page.jobs.map { it.url })
 
         val legacyCheckpoint = page.checkpoint - "processed0" + ("processed" to page.checkpoint.getValue("processed0"))
-        val finalPage = adapter.fetch(ScrapeContext(SearchCriteria(listOf("Kotlin")), checkpoint = legacyCheckpoint))
+        val restartedAdapter = LinkedInAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(), clock)
+        val finalPage = restartedAdapter.fetch(ScrapeContext(SearchCriteria(listOf("Kotlin")), checkpoint = legacyCheckpoint))
 
         assertTrue(finalPage.complete)
         assertEquals(listOf("https://www.linkedin.com/jobs/view/102"), finalPage.jobs.map { it.url })
+        verify(exactly = 2) { httpClient.post(match { it.endsWith("/jobs/search") }, any(), any(), any()) }
     }
 
     @Test
@@ -192,6 +194,31 @@ class LinkedInAdapterTest {
                 .size,
         )
         assertTrue(context.checkpoint.values.all { it.length <= 2048 })
+        verify(exactly = 1) { httpClient.post(match { it.endsWith("/jobs/search") }, any(), any(), any()) }
+    }
+
+    @Test
+    fun `refetches the initial page for a new run`() {
+        every { httpClient.post(match { it.endsWith("/jobs/search") }, any(), any(), any()) } returns fullSearchPage()
+        every { httpClient.post(match { it.endsWith("/jobs/enrich") }, any(), any(), any()) } returns enrichmentResponse(1..20)
+        every { jobHunterClient.checkJobs(any()) } answers {
+            JobCheckResult(
+                newUrls = arg<List<JobCheckRequest>>(0).map { it.url },
+                updatedUrls = emptyList(),
+                unchangedUrls = emptyList(),
+            )
+        }
+        every { jobHunterClient.proxies(JobSource.LINKEDIN) } returns
+            (1..20).map { id ->
+                SourceProxy("http://user:secret@proxy$id.test:8080", "proxy$id.test", 8080, "user", "secret")
+            }
+        val adapter = LinkedInAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(), clock)
+        val initial = ScrapeContext(SearchCriteria(listOf("Kotlin")))
+
+        adapter.fetch(initial)
+        adapter.fetch(initial)
+
+        verify(exactly = 2) { httpClient.post(match { it.endsWith("/jobs/search") }, any(), any(), any()) }
     }
 
     @Test
@@ -237,6 +264,26 @@ class LinkedInAdapterTest {
         assertEquals(0, (searchBodies[0] as Map<*, *>)["offset"])
         assertEquals(24, (searchBodies[0] as Map<*, *>)["hours_old"])
         assertEquals(100, (searchBodies[1] as Map<*, *>)["offset"])
+        verify(exactly = 2) { httpClient.post(match { it.endsWith("/jobs/search") }, any(), any(), any()) }
+    }
+
+    @Test
+    fun `uses a one hour initial window and expands it from context since`() {
+        val searchBodies = mutableListOf<Any>()
+        every { httpClient.post(match { it.endsWith("/jobs/search") }, capture(searchBodies), any(), any()) } returns "[]"
+        every { jobHunterClient.proxies(JobSource.LINKEDIN) } returns
+            listOf(SourceProxy("http://user:secret@proxy.test:8080", "proxy.test", 8080, "user", "secret"))
+        val adapter = LinkedInAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(), clock)
+
+        adapter.fetch(ScrapeContext(SearchCriteria(listOf("Kotlin"))))
+        adapter.fetch(
+            ScrapeContext(
+                SearchCriteria(listOf("Kotlin")),
+                since = Instant.parse("2026-09-17T14:00:00Z"),
+            ),
+        )
+
+        assertEquals(listOf(1, 25), searchBodies.map { (it as Map<*, *>)["hours_old"] })
     }
 
     @Test
