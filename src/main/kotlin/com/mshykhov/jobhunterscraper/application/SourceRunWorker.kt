@@ -68,8 +68,8 @@ class SourceRunWorker(
         val heartbeatFailure = AtomicReference<RuntimeException>()
         val heartbeat =
             heartbeatExecutor.scheduleAtFixedRate(
-                runObservation.wrap(
-                    Runnable {
+                {
+                    runObservation.openScope().use {
                         try {
                             client.heartbeat(claim)
                             availability.controlPlaneSucceeded(claim.source)
@@ -77,8 +77,8 @@ class SourceRunWorker(
                             availability.controlPlaneFailed(claim.source)
                             heartbeatFailure.compareAndSet(null, failure)
                         }
-                    },
-                ),
+                    }
+                },
                 properties.heartbeatInterval.toMillis(),
                 properties.heartbeatInterval.toMillis(),
                 TimeUnit.MILLISECONDS,

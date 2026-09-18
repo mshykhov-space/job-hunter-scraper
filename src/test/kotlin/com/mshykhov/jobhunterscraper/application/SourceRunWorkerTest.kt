@@ -13,6 +13,8 @@ import com.mshykhov.jobhunterscraper.application.model.SourceProxy
 import com.mshykhov.jobhunterscraper.infrastructure.api.JobHunterClient
 import com.mshykhov.jobhunterscraper.infrastructure.api.LeaseLostException
 import com.mshykhov.jobhunterscraper.infrastructure.config.ScraperProperties
+import io.micrometer.core.instrument.MeterRegistry
+import io.micrometer.core.instrument.observation.DefaultMeterObservationHandler
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import io.micrometer.observation.Observation
 import io.micrometer.observation.ObservationHandler
@@ -32,6 +34,7 @@ import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 class SourceRunWorkerTest {
     private val heartbeatExecutor = Executors.newScheduledThreadPool(1)
@@ -101,9 +104,28 @@ class SourceRunWorkerTest {
         val properties = properties(Duration.ofMillis(5))
         val availability = ScraperAvailability(properties, clock)
         val heartbeatReceived = CountDownLatch(1)
+        val stoppedRuns = AtomicInteger()
+        val meterRegistry = SimpleMeterRegistry()
+        val registry =
+            observationRegistry().also {
+                it
+                    .observationConfig()
+                    .observationHandler(DefaultMeterObservationHandler(meterRegistry))
+                    .observationHandler(
+                        object : ObservationHandler<Observation.Context> {
+                            override fun supportsContext(context: Observation.Context): Boolean = context.name == "scrape.run"
+
+                            override fun onStop(context: Observation.Context) {
+                                stoppedRuns.incrementAndGet()
+                            }
+                        },
+                    )
+            }
         val adapter =
             FakeAdapter {
                 assertTrue(heartbeatReceived.await(1, TimeUnit.SECONDS))
+                Thread.sleep(30)
+                assertEquals(0, stoppedRuns.get())
                 ScrapePage(emptyList(), emptyMap(), complete = true)
             }
         val client = FakeClient(claim())
@@ -112,10 +134,21 @@ class SourceRunWorkerTest {
             heartbeatReceived.countDown()
         }
 
-        worker(adapter, client, properties = properties, availability = availability).poll(JobSource.DOU)
+        worker(adapter, client, registry, properties, availability, meterRegistry).poll(JobSource.DOU)
 
         assertTrue(client.heartbeats > 0)
         assertTrue(availability.unavailableSources().isEmpty())
+        assertEquals(1, stoppedRuns.get())
+        assertEquals(
+            setOf("error", "outcome", "source"),
+            meterRegistry
+                .get("scrape.run")
+                .timer()
+                .id
+                .tags
+                .map { it.key }
+                .toSet(),
+        )
     }
 
     @Test
@@ -152,13 +185,14 @@ class SourceRunWorkerTest {
         registry: ObservationRegistry = observationRegistry(),
         properties: ScraperProperties = properties(),
         availability: ScraperAvailability = ScraperAvailability(properties, FIXED_CLOCK),
+        meterRegistry: MeterRegistry = SimpleMeterRegistry(),
     ): SourceRunWorker =
         SourceRunWorker(
             listOf(adapter),
             client,
             properties,
             registry,
-            SimpleMeterRegistry(),
+            meterRegistry,
             heartbeatExecutor,
             availability,
             BatchIdFactory(jacksonObjectMapper()),
