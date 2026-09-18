@@ -1,0 +1,8 @@
+{
+  "specs": {"dailyTasks": ["Build reliable services", "Review code"]},
+  "requirements": {
+    "description": "<p>Strong JVM experience</p>",
+    "musts": [{"value": "Java"}, {"value": "Spring Boot"}],
+    "nices": [{"value": "Kotlin"}]
+  }
+}

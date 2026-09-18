@@ -1,0 +1,20 @@
+{
+  "status": 200,
+  "headers": {"X-WP-Total": 2, "X-WP-TotalPages": 2},
+  "body": [
+    {
+      "id": 51533,
+      "date": "2026-09-18T12:21:23",
+      "link": "https://euremotejobs.com/job/java-platform-engineer/",
+      "title": {"rendered": "Java Platform Engineer"},
+      "content": {"rendered": "<p>Build a reliable platform.</p>"},
+      "meta": {"_company_name": "Acme", "_remote_position": 1},
+      "_embedded": {
+        "wp:term": [[
+          {"id": 72, "name": "EMEA", "taxonomy": "job_listing_region"},
+          {"id": 229, "name": "Java", "taxonomy": "job_listing_tag"}
+        ]]
+      }
+    }
+  ]
+}

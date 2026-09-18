@@ -1,0 +1,61 @@
+{
+  "data": [
+    {
+      "guid": "java-1",
+      "slug": "senior-java-engineer",
+      "title": "Senior Backend Engineer",
+      "companyName": "Acme",
+      "workplaceType": "remote",
+      "experienceLevel": "senior",
+      "publishedAt": "2026-09-18T12:00:00Z",
+      "requiredSkills": [{"name": "Java"}, {"name": "Spring Boot"}],
+      "employmentTypes": [
+        {"from": 5000, "to": 6000, "currency": "EUR", "currencySource": "conversion", "type": "b2b", "unit": "Month"},
+        {"from": 20000, "to": 25000, "currency": "PLN", "currencySource": "original", "type": "b2b", "unit": "Month"}
+      ],
+      "category": {"key": "java"}
+    },
+    {
+      "guid": "javascript-1",
+      "slug": "senior-javascript-engineer",
+      "title": "Senior JavaScript Engineer",
+      "companyName": "Browser Co",
+      "workplaceType": "remote",
+      "experienceLevel": "senior",
+      "publishedAt": "2026-09-18T11:00:00Z",
+      "requiredSkills": [{"name": "JavaScript"}],
+      "employmentTypes": [{"from": 10000, "to": 15000, "currency": "PLN", "currencySource": "original", "type": "b2b", "unit": "Month"}],
+      "category": {"key": "javascript"}
+    },
+    {
+      "guid": "hybrid-1",
+      "slug": "hybrid-kotlin-engineer",
+      "title": "Kotlin Engineer",
+      "companyName": "Office Co",
+      "workplaceType": "hybrid",
+      "experienceLevel": "senior",
+      "publishedAt": "2026-09-18T10:00:00Z",
+      "requiredSkills": [{"name": "Kotlin"}],
+      "employmentTypes": [{"from": 18000, "to": 22000, "currency": "PLN", "currencySource": "original", "type": "b2b", "unit": "Month"}],
+      "category": {"key": "mobile"}
+    },
+    {
+      "guid": "manager-1",
+      "slug": "remote-kotlin-manager",
+      "title": "Kotlin Engineering Manager",
+      "companyName": "Remote Co",
+      "workplaceType": "remote",
+      "experienceLevel": "manager",
+      "publishedAt": "2026-09-18T09:00:00Z",
+      "requiredSkills": [{"name": "Kotlin"}],
+      "employmentTypes": [{"from": 7000, "to": 8000, "currency": "EUR", "currencySource": "original", "type": "permanent", "unit": "Month"}],
+      "category": {"key": "mobile"}
+    }
+  ],
+  "meta": {
+    "from": 0,
+    "totalItems": 4,
+    "prev": {"cursor": null, "itemsCount": 0},
+    "next": {"cursor": null, "itemsCount": 0}
+  }
+}

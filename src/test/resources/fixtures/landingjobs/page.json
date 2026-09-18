@@ -1,0 +1,36 @@
+[
+  {
+    "id": 1,
+    "title": "Senior Java Developer",
+    "url": "https://landing.jobs/at/acme/senior-java-developer",
+    "tags": ["Java", "Spring Boot"],
+    "remote": false,
+    "published_at": "2026-09-18T12:00:00Z",
+    "locations": [{"city": "Lisbon", "country_code": "PT"}],
+    "gross_salary_low": 50000,
+    "gross_salary_high": 67000,
+    "currency_code": "EUR",
+    "role_description": "<p>Build services</p>",
+    "main_requirements": "<ul><li>Java</li></ul>",
+    "type": "Full-time"
+  },
+  {
+    "id": 2,
+    "title": "Senior JavaScript Developer",
+    "url": "https://landing.jobs/at/webco/senior-javascript-developer",
+    "tags": ["JavaScript", "React"],
+    "remote": true,
+    "published_at": "2026-09-18T11:00:00Z",
+    "locations": [],
+    "type": "Full-time"
+  },
+  {
+    "id": 3,
+    "title": "Kotlin Developer",
+    "url": "https://landing.jobs/at/mobileco/kotlin-developer",
+    "tags": ["Kotlin", "Android"],
+    "published_at": "2026-09-18T10:00:00Z",
+    "locations": [{"country_code": "DE"}],
+    "type": "Contract"
+  }
+]

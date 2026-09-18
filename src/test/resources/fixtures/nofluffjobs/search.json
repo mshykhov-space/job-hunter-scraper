@@ -1,0 +1,30 @@
+{
+  "postings": [
+    {
+      "id": "java-remote",
+      "title": "Senior JVM Engineer",
+      "name": "Acme",
+      "url": "senior-jvm-engineer-acme-remote",
+      "technology": "Backend",
+      "seniority": ["Senior"],
+      "salary": {"from": 20000, "to": 23520, "type": "b2b", "currency": "PLN", "period": "Month"},
+      "location": {"places": [{"city": "Remote"}], "fullyRemote": true},
+      "posted": 1789725600000,
+      "tiles": {"values": [{"value": "Java", "type": "requirement"}, {"value": "Spring Boot", "type": "requirement"}]}
+    },
+    {
+      "id": "javascript-remote",
+      "title": "Senior JavaScript Engineer",
+      "name": "Web Co",
+      "url": "senior-javascript-engineer-web-remote",
+      "technology": "Frontend",
+      "seniority": ["Senior"],
+      "salary": {"from": 18000, "to": 22000, "type": "b2b", "currency": "PLN", "period": "Month"},
+      "location": {"places": [{"city": "Remote"}], "fullyRemote": true},
+      "posted": 1789722000000,
+      "tiles": {"values": [{"value": "JavaScript", "type": "requirement"}]}
+    }
+  ],
+  "totalCount": 2,
+  "totalPages": 2
+}
