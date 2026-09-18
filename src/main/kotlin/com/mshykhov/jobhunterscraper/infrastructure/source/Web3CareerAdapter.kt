@@ -1,5 +1,6 @@
 package com.mshykhov.jobhunterscraper.infrastructure.source
 
+import com.fasterxml.jackson.core.json.JsonReadFeature
 import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
@@ -26,6 +27,7 @@ class Web3CareerAdapter(
     private val properties: ScraperProperties,
 ) : SourceAdapter {
     override val source = JobSource.WEB3CAREER
+    private val jsonLdReader = objectMapper.reader().with(JsonReadFeature.ALLOW_UNESCAPED_CONTROL_CHARS.mappedFeature())
 
     override fun fetch(context: ScrapeContext): ScrapePage {
         if (context.criteria.categories.isEmpty()) return ScrapePage(emptyList(), emptyMap(), complete = true)
@@ -86,9 +88,9 @@ class Web3CareerAdapter(
         }
 
     private fun parseJsonLd(value: String): List<JsonNode> {
-        val root =
+        val root: JsonNode =
             try {
-                objectMapper.readTree(value)
+                jsonLdReader.readTree(value)
             } catch (error: Exception) {
                 throw SourceSchemaException("Web3Career JSON-LD is invalid: ${error.message}")
             }

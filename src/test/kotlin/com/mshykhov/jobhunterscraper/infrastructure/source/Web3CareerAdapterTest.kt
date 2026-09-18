@@ -55,6 +55,17 @@ class Web3CareerAdapterTest {
     }
 
     @Test
+    fun `parses an unescaped tab in a JSON-LD description`() {
+        every { httpClient.get(any(), any(), any()) } returns fixture("fixtures/web3career/page-control-character.html")
+        every { jobHunterClient.proxies(JobSource.WEB3CAREER) } returns emptyList()
+        val adapter = Web3CareerAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties())
+
+        val page = adapter.fetch(ScrapeContext(SearchCriteria(listOf("Kotlin"))))
+
+        assertEquals("Build\tWeb3 services", page.jobs.single().description)
+    }
+
+    @Test
     fun `fails instead of silently truncating at the page cap`() {
         every { httpClient.get(any(), any(), any()) } returns fixture("fixtures/web3career/page.html")
         every { jobHunterClient.proxies(JobSource.WEB3CAREER) } returns emptyList()
