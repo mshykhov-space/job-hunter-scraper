@@ -22,7 +22,7 @@ class JustJoinItAdapter(
 
     override fun fetch(context: ScrapeContext): ScrapePage {
         val offset = context.checkpoint[CHECKPOINT]?.toIntOrNull() ?: 0
-        if (offset < 0 || offset % PAGE_SIZE != 0) {
+        if (offset < 0) {
             throw SourceSchemaException("justjoinit checkpoint has invalid offset")
         }
         val pageNumber = offset / PAGE_SIZE + 1
@@ -36,27 +36,26 @@ class JustJoinItAdapter(
         if (meta.requiredInt("from", source.id) != offset) {
             throw SourceSchemaException("justjoinit response cursor does not match request")
         }
-        meta.requiredInt("totalItems", source.id)
+        val totalItems = meta.requiredInt("totalItems", source.id)
+        if (totalItems < 0) throw SourceSchemaException("justjoinit response has invalid total items")
         val next = meta.requiredObject("next", source.id)
         val nextItems = next.requiredInt("itemsCount", source.id)
-        val nextCursor =
-            next
-                .get("cursor")
-                ?.takeUnless(JsonNode::isNull)
-                ?.takeIf(JsonNode::isIntegralNumber)
-                ?.intValue()
-        if (nextItems > 0 && (data.isEmpty || nextCursor == null || nextCursor <= offset)) {
+        val nextCursor = next.requiredInt("cursor", source.id)
+        if (nextItems != data.size() || nextCursor < offset || nextCursor > totalItems) {
             throw SourceSchemaException("justjoinit response has an invalid next cursor")
         }
 
         val jobs = data.mapNotNull { mapOffer(it, context) }
-        val hasNext = nextItems > 0
+        val hasNext = nextCursor < totalItems
+        if (hasNext && (data.isEmpty || nextCursor <= offset)) {
+            throw SourceSchemaException("justjoinit response has a non-advancing cursor")
+        }
         if (hasNext && pageNumber >= properties.maxPages) {
             throw SourceSchemaException("justjoinit pagination exceeds configured maxPages=${properties.maxPages}")
         }
         return ScrapePage(
             jobs = jobs,
-            checkpoint = mapOf(CHECKPOINT to (nextCursor ?: offset).toString()),
+            checkpoint = mapOf(CHECKPOINT to nextCursor.toString()),
             complete = !hasNext,
             fetchedCount = data.size(),
         )
@@ -78,6 +77,7 @@ class JustJoinItAdapter(
                 skill.requiredText("name", source.id)
             }
         val employmentTypes = offer.requiredArray("employmentTypes", source.id)
+        if (experienceLevel !in EXPERIENCE_LEVELS) return null
         if (workplaceType != "remote") return null
         val category = matchCategory(context.criteria.categories, listOf(title) + skills) ?: return null
 
@@ -129,5 +129,6 @@ class JustJoinItAdapter(
         const val DEFAULT_ENDPOINT = "https://justjoin.it/api/candidate-api/offers"
         const val CHECKPOINT = "from"
         const val PAGE_SIZE = 100
+        val EXPERIENCE_LEVELS = setOf("senior", "manager")
     }
 }

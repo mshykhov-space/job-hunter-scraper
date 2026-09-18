@@ -56,6 +56,6 @@
     "from": 0,
     "totalItems": 4,
     "prev": {"cursor": null, "itemsCount": 0},
-    "next": {"cursor": null, "itemsCount": 0}
+    "next": {"cursor": 4, "itemsCount": 4}
   }
 }

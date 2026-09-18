@@ -28,12 +28,11 @@ class JustJoinItAdapterTest {
 
     @Test
     fun `advances the cursor from response metadata`() {
-        val response =
-            fixture("justjoinit/page.json").replace(
-                "\"next\": {\"cursor\": null, \"itemsCount\": 0}",
-                "\"next\": {\"cursor\": 100, \"itemsCount\": 100}",
-            )
-        val page = adapter(RecordingSourceHttpClient(getResponse = { response })).fetch(context())
+        val mapper = jacksonObjectMapper()
+        val response = mapper.readTree(fixture("justjoinit/page.json"))
+        (response["meta"] as com.fasterxml.jackson.databind.node.ObjectNode).put("totalItems", 200)
+        (response["meta"]["next"] as com.fasterxml.jackson.databind.node.ObjectNode).put("cursor", 100).put("itemsCount", 4)
+        val page = adapter(RecordingSourceHttpClient(getResponse = { response.toString() })).fetch(context())
 
         assertEquals(mapOf("from" to "100"), page.checkpoint)
         assertEquals(false, page.complete)
@@ -48,19 +47,27 @@ class JustJoinItAdapterTest {
 
     @Test
     fun `fails when response requires more pages than the configured coverage cap`() {
-        val response =
-            fixture("justjoinit/page.json").replace(
-                "\"next\": {\"cursor\": null, \"itemsCount\": 0}",
-                "\"next\": {\"cursor\": 100, \"itemsCount\": 100}",
-            )
+        val mapper = jacksonObjectMapper()
+        val response = mapper.readTree(fixture("justjoinit/page.json"))
+        (response["meta"] as com.fasterxml.jackson.databind.node.ObjectNode).put("totalItems", 200)
+        (response["meta"]["next"] as com.fasterxml.jackson.databind.node.ObjectNode).put("cursor", 100).put("itemsCount", 4)
         val adapter =
             JustJoinItAdapter(
-                RecordingSourceHttpClient(getResponse = { response }),
-                jacksonObjectMapper(),
+                RecordingSourceHttpClient(getResponse = { response.toString() }),
+                mapper,
                 ScraperProperties(maxPages = 1),
             )
 
         assertThrows(SourceSchemaException::class.java) { adapter.fetch(context()) }
+    }
+
+    @Test
+    fun `rejects experience levels outside the requested senior and manager set`() {
+        val response = fixture("justjoinit/page.json").replace("\"experienceLevel\": \"manager\"", "\"experienceLevel\": \"junior\"")
+
+        val page = adapter(RecordingSourceHttpClient(getResponse = { response })).fetch(context())
+
+        assertEquals(listOf("Senior Backend Engineer"), page.jobs.map { it.title })
     }
 
     private fun adapter(client: RecordingSourceHttpClient) = JustJoinItAdapter(client, jacksonObjectMapper(), ScraperProperties())
