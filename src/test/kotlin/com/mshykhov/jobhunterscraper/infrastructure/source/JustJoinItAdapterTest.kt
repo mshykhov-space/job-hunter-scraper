@@ -1,5 +1,6 @@
 package com.mshykhov.jobhunterscraper.infrastructure.source
 
+import com.fasterxml.jackson.databind.node.ObjectNode
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.mshykhov.jobhunterscraper.application.PublicationWindow
 import com.mshykhov.jobhunterscraper.application.SourceSchemaException
@@ -111,14 +112,18 @@ class JustJoinItAdapterTest {
     }
 
     @Test
-    fun `stops a published-at sorted feed and skips old detail requests`() {
-        val client = successfulClient()
+    fun `stops a published-at sorted feed after a wholly stale page without detail requests`() {
+        val mapper = jacksonObjectMapper()
+        val response = mapper.readTree(fixture("justjoinit/page.json"))
+        response.path("data").forEach { (it as ObjectNode).put("publishedAt", "2026-09-18T10:00:00Z") }
+        (response.path("meta") as ObjectNode).put("totalItems", 104)
+        val client = RecordingSourceHttpClient(getResponse = { response.toString() })
 
         val page = adapter(client).fetch(context(Instant.parse("2026-09-18T11:30:00Z")))
 
-        assertEquals(listOf("Senior Backend Engineer"), page.jobs.map { it.title })
+        assertTrue(page.jobs.isEmpty())
         assertTrue(page.complete)
-        assertEquals(2, client.getUrls.size)
+        assertEquals(1, client.getUrls.size)
     }
 
     @Test

@@ -48,10 +48,11 @@ class JustJoinItAdapter(
         }
 
         val windowComplete =
-            data.any { offer ->
-                if (!offer.isObject) throw SourceSchemaException("justjoinit offer must be an object")
-                publicationWindow.isPreciselyOlder(offer.requiredText("publishedAt", source.id), context.since)
-            }
+            !data.isEmpty &&
+                data.all { offer ->
+                    if (!offer.isObject) throw SourceSchemaException("justjoinit offer must be an object")
+                    publicationWindow.isPreciselyOlder(offer.requiredText("publishedAt", source.id), context.since)
+                }
         val jobs = data.mapNotNull { mapOffer(it, context) }
         val hasNext = nextCursor < totalItems && !windowComplete
         if (hasNext && (data.isEmpty || nextCursor <= offset)) {
