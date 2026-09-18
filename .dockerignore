@@ -1,0 +1,7 @@
+.git
+.gradle
+.kotlin
+build
+node_modules
+.env*
+.idea
