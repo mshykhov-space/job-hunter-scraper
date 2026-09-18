@@ -5,7 +5,7 @@ import java.time.Duration
 
 @ConfigurationProperties("job-hunter")
 data class JobHunterProperties(
-    val apiUrl: String = "http://localhost:8081",
+    val apiUrl: String = "http://localhost:8095",
     val authEnabled: Boolean = true,
     val tokenUrl: String = "https://auth.gaynance.com/application/o/token/",
     val clientId: String = "",

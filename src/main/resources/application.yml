@@ -40,7 +40,7 @@ scraper:
   max-response-bytes: ${SCRAPER_MAX_RESPONSE_BYTES:16777216}
   max-batch-bytes: ${SCRAPER_MAX_BATCH_BYTES:8388608}
 job-hunter:
-  api-url: ${JOB_HUNTER_API_URL:http://localhost:8081}
+  api-url: ${JOB_HUNTER_API_URL:http://localhost:8095}
   auth-enabled: ${JOB_HUNTER_AUTH_ENABLED:true}
   token-url: ${AUTHENTIK_TOKEN_URL:https://auth.gaynance.com/application/o/token/}
   client-id: ${JOB_HUNTER_CLIENT_ID:}
