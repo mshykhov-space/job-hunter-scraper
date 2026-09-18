@@ -17,6 +17,7 @@ import org.springframework.stereotype.Component
 import java.net.URI
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import java.time.LocalDateTime
 
 @Component
 class DjinniAdapter(
@@ -56,7 +57,7 @@ class DjinniAdapter(
         val jobs =
             postings
                 .mapIndexed { index, posting -> parsePosting(posting, urls.getOrNull(index), category) }
-                .filter { publicationWindow.accepts(it.publishedAt, context.since) }
+                .filter { publicationWindow.accepts(windowTimestamp(it.publishedAt), context.since) }
         val hasNext = document.selectFirst("a[rel=next], a[aria-label=next]") != null
         if (hasNext && position.page >= properties.maxPages) {
             throw SourceSchemaException("Djinni pagination exceeds ${properties.maxPages} pages")
@@ -143,6 +144,11 @@ class DjinniAdapter(
         }
         return Position(categoryIndex, page)
     }
+
+    private fun windowTimestamp(value: String?): String? =
+        value?.let {
+            runCatching { LocalDateTime.parse(it).toLocalDate().toString() }.getOrDefault(it)
+        }
 
     private fun page(
         context: ScrapeContext,

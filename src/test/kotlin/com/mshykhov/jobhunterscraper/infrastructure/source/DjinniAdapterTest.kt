@@ -51,16 +51,15 @@ class DjinniAdapterTest {
     }
 
     @Test
-    fun `filters a precise older timestamp but keeps an unknown timestamp`() {
-        every { httpClient.get(any(), any(), any()) } returns
-            fixture("fixtures/djinni/page.html").replace("2026-09-17T10:00:00", "2026-09-17T10:00:00Z")
+    fun `treats an offsetless timestamp as date-only and keeps an unknown timestamp`() {
+        every { httpClient.get(any(), any(), any()) } returns fixture("fixtures/djinni/page.html")
         val adapter = DjinniAdapter(httpClient, ObjectMapper(), ScraperProperties(maxPages = 10), publicationWindow)
 
         val page =
             adapter.fetch(
                 ScrapeContext(
                     SearchCriteria(listOf("Kotlin")),
-                    since = Instant.parse("2026-09-17T11:00:00Z"),
+                    since = Instant.parse("2026-09-18T11:00:00Z"),
                 ),
             )
 

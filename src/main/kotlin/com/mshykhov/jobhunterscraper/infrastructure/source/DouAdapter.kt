@@ -43,45 +43,46 @@ class DouAdapter(
 
         val items = channel.select("item")
         val jobs =
-            items.map { item ->
-                val rawTitle =
-                    item
-                        .selectFirst("title")
-                        ?.text()
-                        ?.trim()
-                        .orEmpty()
-                val rawUrl =
-                    item
-                        .selectFirst("link")
-                        ?.text()
-                        ?.trim()
-                        .orEmpty()
-                if (rawTitle.isBlank() || rawUrl.isBlank()) {
-                    throw SourceSchemaException("DOU RSS item is missing title or link")
-                }
-                val parsedTitle = parseTitle(rawTitle)
-                val description = item.selectFirst("description")?.text().orEmpty()
-                val publishedAt = normalizePublishedAt(item.selectFirst("pubDate")?.text()?.takeIf(String::isNotBlank))
-                ScrapedJob(
-                    title = parsedTitle.title,
-                    company = parsedTitle.company,
-                    url = rawUrl.replace(UTM_SUFFIX, ""),
-                    description = description,
-                    source = source,
-                    salary = parsedTitle.salary,
-                    location = parsedTitle.location,
-                    remote = parsedTitle.remote,
-                    publishedAt = publishedAt,
-                    rawData =
-                        mapOf(
-                            "title" to rawTitle,
-                            "link" to rawUrl,
-                            "description" to description,
-                            "pubDate" to publishedAt,
-                        ),
-                    category = category,
-                )
-            }.filter { publicationWindow.accepts(it.publishedAt, context.since) }
+            items
+                .map { item ->
+                    val rawTitle =
+                        item
+                            .selectFirst("title")
+                            ?.text()
+                            ?.trim()
+                            .orEmpty()
+                    val rawUrl =
+                        item
+                            .selectFirst("link")
+                            ?.text()
+                            ?.trim()
+                            .orEmpty()
+                    if (rawTitle.isBlank() || rawUrl.isBlank()) {
+                        throw SourceSchemaException("DOU RSS item is missing title or link")
+                    }
+                    val parsedTitle = parseTitle(rawTitle)
+                    val description = item.selectFirst("description")?.text().orEmpty()
+                    val publishedAt = normalizePublishedAt(item.selectFirst("pubDate")?.text()?.takeIf(String::isNotBlank))
+                    ScrapedJob(
+                        title = parsedTitle.title,
+                        company = parsedTitle.company,
+                        url = rawUrl.replace(UTM_SUFFIX, ""),
+                        description = description,
+                        source = source,
+                        salary = parsedTitle.salary,
+                        location = parsedTitle.location,
+                        remote = parsedTitle.remote,
+                        publishedAt = publishedAt,
+                        rawData =
+                            mapOf(
+                                "title" to rawTitle,
+                                "link" to rawUrl,
+                                "description" to description,
+                                "pubDate" to publishedAt,
+                            ),
+                        category = category,
+                    )
+                }.filter { publicationWindow.accepts(it.publishedAt, context.since) }
 
         val nextCategory = categoryIndex + 1
         return ScrapePage(
