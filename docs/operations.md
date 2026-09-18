@@ -8,7 +8,14 @@ five-minute lease and a criteria snapshot. The worker renews its lease every
 only with an acknowledged batch. Repeating a batch ID is idempotent; stale lease
 tokens cannot write. An expired lease lets another worker resume the run.
 
-The API schedules successful sources every 15 minutes. Failed runs retry with
+Every new run uses `SCRAPING_LOOKBACK` on the API, defaulting to one hour before
+its start. Retries retain that lower bound and their checkpoint. LinkedIn queries
+the upstream rolling last-hour feed on each search, including retries; it does not
+reconstruct an immutable historical snapshot. Sources with date-only timestamps
+use calendar-day overlap. A new run does not backfill outages older than the
+configured lookback.
+
+The API schedules successful sources 15 minutes after completion. Failed runs retry with
 bounded backoff before a fresh scheduled run. The scraper polls for claims every
 15 seconds and runs sources independently. A failure in one source does not stop
 the others. Do not reset checkpoints directly in PostgreSQL.
