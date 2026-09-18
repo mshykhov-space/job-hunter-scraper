@@ -11,6 +11,7 @@ import com.mshykhov.jobhunterscraper.application.model.ScrapePage
 import com.mshykhov.jobhunterscraper.application.model.ScrapedJob
 import com.mshykhov.jobhunterscraper.infrastructure.api.JobHunterClient
 import com.mshykhov.jobhunterscraper.infrastructure.config.ScraperProperties
+import com.mshykhov.jobhunterscraper.infrastructure.http.OutboundHttpException
 import com.mshykhov.jobhunterscraper.infrastructure.http.SourceHttpClient
 import org.jsoup.Jsoup
 import org.springframework.stereotype.Component
@@ -35,9 +36,7 @@ class Web3CareerAdapter(
         val endpoint = properties.endpoint(source, DEFAULT_ENDPOINT).removeSuffix("/")
         val pageQuery = if (position.page == 1) "" else "?page=${position.page}"
         val url = "$endpoint/$slug$remoteSegment-jobs$pageQuery"
-        val proxy = jobHunterClient.proxies(source).firstOrNull()
-        val headers = DEFAULT_HEADERS + (proxy?.fingerprint ?: emptyMap())
-        val document = Jsoup.parse(httpClient.get(url, headers, proxy?.endpoint()))
+        val document = fetchDocument(url)
         val scripts = document.select("script[type=application/ld+json]")
         if (scripts.isEmpty()) throw SourceSchemaException("Web3Career response has no JSON-LD")
 
@@ -65,6 +64,26 @@ class Web3CareerAdapter(
         }
         return page(context, position, jobs, hasNext)
     }
+
+    private fun fetchDocument(url: String) =
+        run {
+            var lastFailure: OutboundHttpException? = null
+            val attemptedProxies = mutableSetOf<Pair<String, Int>>()
+            repeat(properties.httpAttempts) { attempt ->
+                val proxy = jobHunterClient.proxies(source).firstOrNull()
+                if (proxy != null && !attemptedProxies.add(proxy.host to proxy.port)) return@repeat
+                val headers = DEFAULT_HEADERS + (proxy?.fingerprint ?: emptyMap())
+                try {
+                    return@run Jsoup.parse(httpClient.get(url, headers, proxy?.endpoint()))
+                } catch (failure: OutboundHttpException) {
+                    if (proxy == null || failure.status.value() !in PROXY_RETRY_STATUSES || attempt == properties.httpAttempts - 1) {
+                        throw failure
+                    }
+                    lastFailure = failure
+                }
+            }
+            throw checkNotNull(lastFailure)
+        }
 
     private fun parseJsonLd(value: String): List<JsonNode> {
         val root =
@@ -208,6 +227,7 @@ class Web3CareerAdapter(
         const val CHECKPOINT_PAGE = "page"
         val JOB_PATH = Regex("/[\\w][\\w.-]*(?:-[\\w.-]+)*/(\\d+)")
         val ZERO_RESULTS = Regex("\\b0 jobs? found\\b", RegexOption.IGNORE_CASE)
+        val PROXY_RETRY_STATUSES = setOf(403, 429)
         val WHITESPACE = Regex("\\s+")
         val MAP_TYPE = object : TypeReference<Map<String, Any?>>() {}
         val DEFAULT_HEADERS =
