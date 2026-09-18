@@ -22,6 +22,7 @@ management:
   otlp:
     tracing:
       endpoint: ${OTLP_TRACES_ENDPOINT:http://localhost:4318/v1/traces}
+      timeout: ${OTLP_TRACES_TIMEOUT:10s}
 scraper:
   enabled: ${SCRAPER_ENABLED:false}
   sources: ${SCRAPER_SOURCES:djinni,dou,euremotejobs,justjoinit,landingjobs,linkedin,nofluffjobs,web3career}
@@ -31,10 +32,13 @@ scraper:
   max-pages: ${SCRAPER_MAX_PAGES:1000}
   heartbeat-interval: ${SCRAPER_HEARTBEAT_INTERVAL:30s}
   http-timeout: ${SCRAPER_HTTP_TIMEOUT:30s}
+  source-timeouts:
+    linkedin: ${SCRAPER_LINKEDIN_HTTP_TIMEOUT:120s}
   http-attempts: ${SCRAPER_HTTP_ATTEMPTS:3}
   retry-delay: ${SCRAPER_RETRY_DELAY:1s}
   max-retry-delay: ${SCRAPER_MAX_RETRY_DELAY:2m}
   max-response-bytes: ${SCRAPER_MAX_RESPONSE_BYTES:16777216}
+  max-batch-bytes: ${SCRAPER_MAX_BATCH_BYTES:8388608}
 job-hunter:
   api-url: ${JOB_HUNTER_API_URL:http://localhost:8081}
   auth-enabled: ${JOB_HUNTER_AUTH_ENABLED:true}

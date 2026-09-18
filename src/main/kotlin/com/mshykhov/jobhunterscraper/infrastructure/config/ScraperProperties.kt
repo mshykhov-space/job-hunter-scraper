@@ -15,10 +15,12 @@ data class ScraperProperties(
     val maxPages: Int = 1000,
     val heartbeatInterval: Duration = Duration.ofSeconds(30),
     val httpTimeout: Duration = Duration.ofSeconds(30),
+    val sourceTimeouts: Map<String, Duration> = mapOf(JobSource.LINKEDIN.id to Duration.ofSeconds(120)),
     val httpAttempts: Int = 3,
     val retryDelay: Duration = Duration.ofSeconds(1),
     val maxRetryDelay: Duration = Duration.ofMinutes(2),
     val maxResponseBytes: Int = 16 * 1024 * 1024,
+    val maxBatchBytes: Int = 8 * 1024 * 1024,
 ) {
     init {
         require(
@@ -27,12 +29,16 @@ data class ScraperProperties(
         require(maxPages > 0) { "scraper.max-pages must be positive" }
         require(httpAttempts > 0) { "scraper.http-attempts must be positive" }
         require(maxResponseBytes > 0) { "scraper.max-response-bytes must be positive" }
+        require(maxBatchBytes > 0) { "scraper.max-batch-bytes must be positive" }
         require(!heartbeatInterval.isNegative && !heartbeatInterval.isZero) { "scraper.heartbeat-interval must be positive" }
         require(!pollInterval.isNegative && !pollInterval.isZero) { "scraper.poll-interval must be positive" }
+        require(sourceTimeouts.values.all { !it.isNegative && !it.isZero }) { "scraper.source-timeouts must be positive" }
     }
 
     fun endpoint(
         source: JobSource,
         default: String,
     ): String = endpoints[source.id] ?: default
+
+    fun timeout(source: JobSource): Duration = sourceTimeouts[source.id] ?: httpTimeout
 }
