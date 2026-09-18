@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>DOU Jobs</title>
+    <item>
+      <title>Senior Kotlin Engineer в Acme, Inc., Київ, віддалено, до $5000</title>
+      <link>https://jobs.dou.ua/companies/acme/vacancies/1/?utm_source=jobsrss</link>
+      <description><![CDATA[<p>Build reliable services</p>]]></description>
+      <pubDate>Thu, 17 Sep 2026 10:00:00 +0300</pubDate>
+    </item>
+    <item>
+      <title>Backend Engineer в Example GmbH, Львів</title>
+      <link>https://jobs.dou.ua/companies/example/vacancies/2/</link>
+      <description>Backend role</description>
+    </item>
+  </channel>
+</rss>

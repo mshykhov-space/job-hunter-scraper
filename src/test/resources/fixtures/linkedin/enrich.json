@@ -1,0 +1,23 @@
+{
+  "results": [
+    {
+      "job_id": "101",
+      "url": "https://www.linkedin.com/jobs/view/101",
+      "status": "success",
+      "data": {
+        "description": "Full description",
+        "company_name": "Acme Inc.",
+        "salary": "$100,000-$140,000/yr",
+        "published_at": "2026-09-17T10:30:00Z",
+        "seniority": "Senior"
+      }
+    },
+    {
+      "job_id": "102",
+      "url": "https://www.linkedin.com/jobs/view/102",
+      "status": "no_data",
+      "error": "Could not parse job page"
+    }
+  ],
+  "stats": {"total": 2, "success": 1}
+}

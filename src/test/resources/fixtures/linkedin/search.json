@@ -1,0 +1,22 @@
+[
+  {
+    "title": "Senior Kotlin Engineer",
+    "company": "Acme",
+    "job_url": "https://www.linkedin.com/jobs/view/101",
+    "location": "Europe",
+    "date_posted": "2026-09-17",
+    "is_remote": true,
+    "min_amount": 100000,
+    "max_amount": 140000,
+    "currency": "USD"
+  },
+  {
+    "title": "Backend Engineer",
+    "company": "Example",
+    "job_url": "https://www.linkedin.com/jobs/view/102",
+    "location": "Kyiv",
+    "date_posted": "2026-09-17",
+    "min_amount": 80000,
+    "max_amount": 100000
+  }
+]
