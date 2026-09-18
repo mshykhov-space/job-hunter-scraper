@@ -16,7 +16,6 @@ import com.mshykhov.jobhunterscraper.infrastructure.config.ScraperProperties
 import com.mshykhov.jobhunterscraper.infrastructure.http.SourceHttpClient
 import org.springframework.stereotype.Component
 import java.net.URI
-import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.time.Clock
@@ -41,9 +40,16 @@ class LinkedInAdapter(
         val location = locations[position.locationIndex]
         val endpoint = properties.endpoint(source, DEFAULT_ENDPOINT).removeSuffix("/")
         val processedHashes = processedHashes(context)
-        val searchUrl =
-            "$endpoint/jobs?${searchParameters(category, location, context.criteria.remoteOnly, hoursOld(context), position.offset)}"
-        val searchJobs = parseSearch(httpClient.get(searchUrl))
+        val hoursOld = hoursOld(context)
+        val proxies = jobHunterClient.proxies(source)
+        if (proxies.isEmpty()) throw SourceSchemaException("LinkedIn search requires at least one proxy")
+        val searchJobs =
+            parseSearch(
+                httpClient.post(
+                    "$endpoint/jobs/search",
+                    searchBody(category, location, context.criteria.remoteOnly, hoursOld, position.offset, proxies),
+                ),
+            )
         if (searchJobs.size > PAGE_SIZE) {
             throw SourceSchemaException("LinkedIn search returned more than the requested $PAGE_SIZE results")
         }
@@ -53,7 +59,7 @@ class LinkedInAdapter(
                 .map { parseCandidate(it, category) }
                 .distinctBy(ScrapedJob::url)
                 .filterNot { hash(it.url) in processedHashes }
-        val enrichment = enrich(endpoint, candidates)
+        val enrichment = enrich(endpoint, candidates, proxies)
         if (enrichment.hasRemaining) {
             val nextProcessed = (processedHashes + enrichment.processedHashes).sorted()
             return ScrapePage(
@@ -71,24 +77,26 @@ class LinkedInAdapter(
         return nextPage(context, position, locations.size, enrichment.jobs, searchJobs.size)
     }
 
-    private fun searchParameters(
+    private fun searchBody(
         category: String,
         location: String,
         remoteOnly: Boolean,
         hoursOld: Int,
         offset: Int,
-    ): String =
-        listOf(
+        proxies: List<SourceProxy>,
+    ): Map<String, Any> =
+        mapOf(
             "site" to "linkedin",
             "search_term" to category,
             "location" to location,
-            "is_remote" to remoteOnly.toString(),
-            "results_wanted" to PAGE_SIZE.toString(),
-            "offset" to offset.toString(),
-            "hours_old" to hoursOld.toString(),
+            "proxies" to proxies.map(SourceProxy::url),
+            "is_remote" to remoteOnly,
+            "results_wanted" to PAGE_SIZE,
+            "offset" to offset,
+            "hours_old" to hoursOld,
             "description_format" to "markdown",
-            "linkedin_fetch_description" to "false",
-        ).joinToString("&") { (key, value) -> "$key=${encode(value)}" }
+            "linkedin_fetch_description" to false,
+        )
 
     private fun parseSearch(body: String): List<JsonNode> {
         val root =
@@ -165,6 +173,7 @@ class LinkedInAdapter(
     private fun enrich(
         endpoint: String,
         candidates: List<ScrapedJob>,
+        proxies: List<SourceProxy>,
     ): Enrichment {
         if (candidates.isEmpty()) return Enrichment(emptyList(), hasRemaining = false, processedHashes = emptySet())
         val check =
@@ -181,8 +190,6 @@ class LinkedInAdapter(
         val selected = candidates.filter { it.url in selectedUrls }
         val unchangedHashes = check.unchangedUrls.map(::hash).toSet()
         if (selected.isEmpty()) return Enrichment(emptyList(), hasRemaining = false, processedHashes = unchangedHashes)
-        val proxies = jobHunterClient.proxies(source)
-        if (proxies.isEmpty()) throw SourceSchemaException("LinkedIn enrichment requires at least one proxy")
         val chunk = selected.take(minOf(proxies.size, MAX_ENRICHMENT_CHUNK))
 
         val response =
@@ -357,8 +364,6 @@ class LinkedInAdapter(
         )
 
     private fun jobId(url: String): String = runCatching { URI(url).path.trimEnd('/').substringAfterLast('/') }.getOrDefault("")
-
-    private fun encode(value: String): String = URLEncoder.encode(value, StandardCharsets.UTF_8)
 
     private fun hash(url: String): String =
         HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(url.toByteArray(StandardCharsets.UTF_8)), 0, HASH_BYTES)
