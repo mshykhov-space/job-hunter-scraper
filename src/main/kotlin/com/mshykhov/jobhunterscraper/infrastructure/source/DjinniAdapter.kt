@@ -3,6 +3,7 @@ package com.mshykhov.jobhunterscraper.infrastructure.source
 import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.mshykhov.jobhunterscraper.application.PublicationWindow
 import com.mshykhov.jobhunterscraper.application.SourceAdapter
 import com.mshykhov.jobhunterscraper.application.SourceSchemaException
 import com.mshykhov.jobhunterscraper.application.model.JobSource
@@ -22,6 +23,7 @@ class DjinniAdapter(
     private val httpClient: SourceHttpClient,
     private val objectMapper: ObjectMapper,
     private val properties: ScraperProperties,
+    private val publicationWindow: PublicationWindow,
 ) : SourceAdapter {
     override val source = JobSource.DJINNI
 
@@ -51,12 +53,15 @@ class DjinniAdapter(
             throw SourceSchemaException("Djinni JSON-LD jobs do not match listing URLs")
         }
 
-        val jobs = postings.mapIndexed { index, posting -> parsePosting(posting, urls.getOrNull(index), category) }
+        val jobs =
+            postings
+                .mapIndexed { index, posting -> parsePosting(posting, urls.getOrNull(index), category) }
+                .filter { publicationWindow.accepts(it.publishedAt, context.since) }
         val hasNext = document.selectFirst("a[rel=next], a[aria-label=next]") != null
         if (hasNext && position.page >= properties.maxPages) {
             throw SourceSchemaException("Djinni pagination exceeds ${properties.maxPages} pages")
         }
-        return page(context, position, jobs, hasNext)
+        return page(context, position, jobs, hasNext, postings.size)
     }
 
     private fun parseJsonLd(value: String): List<JsonNode> {
@@ -144,12 +149,14 @@ class DjinniAdapter(
         position: Position,
         jobs: List<ScrapedJob>,
         hasNext: Boolean,
+        fetchedCount: Int,
     ): ScrapePage {
         if (hasNext) {
             return ScrapePage(
                 jobs,
                 mapOf(CHECKPOINT_CATEGORY to position.categoryIndex.toString(), CHECKPOINT_PAGE to (position.page + 1).toString()),
                 complete = false,
+                fetchedCount = fetchedCount,
             )
         }
         val nextCategory = position.categoryIndex + 1
@@ -161,6 +168,7 @@ class DjinniAdapter(
                 emptyMap()
             },
             complete = nextCategory >= context.criteria.categories.size,
+            fetchedCount = fetchedCount,
         )
     }
 

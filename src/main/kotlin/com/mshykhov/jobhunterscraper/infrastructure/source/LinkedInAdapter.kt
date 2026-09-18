@@ -3,6 +3,7 @@ package com.mshykhov.jobhunterscraper.infrastructure.source
 import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.mshykhov.jobhunterscraper.application.PublicationWindow
 import com.mshykhov.jobhunterscraper.application.SourceAdapter
 import com.mshykhov.jobhunterscraper.application.SourceSchemaException
 import com.mshykhov.jobhunterscraper.application.model.JobCheckRequest
@@ -18,8 +19,6 @@ import org.springframework.stereotype.Component
 import java.net.URI
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
-import java.time.Clock
-import java.time.Duration
 import java.util.HexFormat
 import java.util.concurrent.atomic.AtomicReference
 
@@ -29,7 +28,7 @@ class LinkedInAdapter(
     private val objectMapper: ObjectMapper,
     private val jobHunterClient: JobHunterClient,
     private val properties: ScraperProperties,
-    private val clock: Clock,
+    private val publicationWindow: PublicationWindow,
 ) : SourceAdapter {
     override val source = JobSource.LINKEDIN
     private val searchCache = AtomicReference<Pair<ScrapeContext, List<JsonNode>>?>()
@@ -43,10 +42,9 @@ class LinkedInAdapter(
         val endpoint = properties.endpoint(source, DEFAULT_ENDPOINT).removeSuffix("/")
         val processedHashes = processedHashes(context)
         val cacheKey = cacheKey(context, position)
-        val hoursOld = hoursOld(context)
         val proxies = jobHunterClient.proxies(source)
         if (proxies.isEmpty()) throw SourceSchemaException("LinkedIn search requires at least one proxy")
-        val searchJobs = search(cacheKey, processedHashes, endpoint, category, location, hoursOld, position.offset, proxies)
+        val searchJobs = search(cacheKey, processedHashes, endpoint, category, location, position.offset, proxies)
         if (searchJobs.size > PAGE_SIZE) {
             throw SourceSchemaException("LinkedIn search returned more than the requested $PAGE_SIZE results")
         }
@@ -54,6 +52,7 @@ class LinkedInAdapter(
         val candidates =
             searchJobs
                 .map { parseCandidate(it, category) }
+                .filter { publicationWindow.accepts(it.publishedAt, context.since) }
                 .distinctBy(ScrapedJob::url)
                 .filterNot { hash(it.url) in processedHashes }
         val enrichment = enrich(endpoint, candidates, proxies)
@@ -80,7 +79,6 @@ class LinkedInAdapter(
         endpoint: String,
         category: String,
         location: String,
-        hoursOld: Int,
         offset: Int,
         proxies: List<SourceProxy>,
     ): List<JsonNode> {
@@ -90,7 +88,7 @@ class LinkedInAdapter(
             parseSearch(
                 httpClient.post(
                     "$endpoint/jobs/search",
-                    searchBody(category, location, cacheKey.criteria.remoteOnly, hoursOld, offset, proxies),
+                    searchBody(category, location, cacheKey.criteria.remoteOnly, offset, proxies),
                 ),
             )
         searchCache.set(cacheKey to jobs)
@@ -114,7 +112,6 @@ class LinkedInAdapter(
         category: String,
         location: String,
         remoteOnly: Boolean,
-        hoursOld: Int,
         offset: Int,
         proxies: List<SourceProxy>,
     ): Map<String, Any> =
@@ -126,7 +123,7 @@ class LinkedInAdapter(
             "is_remote" to remoteOnly,
             "results_wanted" to PAGE_SIZE,
             "offset" to offset,
-            "hours_old" to hoursOld,
+            "hours_old" to MIN_HOURS_OLD,
             "description_format" to "markdown",
             "linkedin_fetch_description" to false,
         )
@@ -414,16 +411,6 @@ class LinkedInAdapter(
     private fun hash(url: String): String =
         HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(url.toByteArray(StandardCharsets.UTF_8)), 0, HASH_BYTES)
 
-    private fun hoursOld(context: ScrapeContext): Int {
-        val since = context.since ?: return MIN_HOURS_OLD
-        val elapsed = Duration.between(since, clock.instant())
-        val hours = Math.ceilDiv(elapsed.seconds.coerceAtLeast(0), SECONDS_PER_HOUR).coerceAtLeast(MIN_HOURS_OLD.toLong())
-        if (hours > MAX_HOURS_OLD) {
-            throw SourceSchemaException("LinkedIn lookback exceeds the supported $MAX_HOURS_OLD hours")
-        }
-        return hours.toInt()
-    }
-
     private fun searchPageLimit(): Int = minOf(properties.maxPages, LINKEDIN_OFFSET_LIMIT / PAGE_SIZE)
 
     private data class Position(
@@ -448,8 +435,6 @@ class LinkedInAdapter(
         const val LINKEDIN_OFFSET_LIMIT = 1000
         const val MAX_ENRICHMENT_CHUNK = 20
         const val MIN_HOURS_OLD = 1
-        const val MAX_HOURS_OLD = 24L * 30
-        const val SECONDS_PER_HOUR = 3600L
         const val HASH_BYTES = 16
         const val PROCESSED_HASHES_PER_ENTRY = 50
         val PROCESSED_HASH = Regex("[0-9a-f]{32}")

@@ -1,5 +1,6 @@
 package com.mshykhov.jobhunterscraper.infrastructure.source
 
+import com.mshykhov.jobhunterscraper.application.PublicationWindow
 import com.mshykhov.jobhunterscraper.application.SourceAdapter
 import com.mshykhov.jobhunterscraper.application.SourceSchemaException
 import com.mshykhov.jobhunterscraper.application.model.JobSource
@@ -13,11 +14,14 @@ import org.jsoup.parser.Parser
 import org.springframework.stereotype.Component
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 
 @Component
 class DouAdapter(
     private val httpClient: SourceHttpClient,
     private val properties: ScraperProperties,
+    private val publicationWindow: PublicationWindow,
 ) : SourceAdapter {
     override val source = JobSource.DOU
 
@@ -37,8 +41,9 @@ class DouAdapter(
             document.selectFirst("rss > channel")
                 ?: throw SourceSchemaException("DOU response is not an RSS channel")
 
+        val items = channel.select("item")
         val jobs =
-            channel.select("item").map { item ->
+            items.map { item ->
                 val rawTitle =
                     item
                         .selectFirst("title")
@@ -56,7 +61,7 @@ class DouAdapter(
                 }
                 val parsedTitle = parseTitle(rawTitle)
                 val description = item.selectFirst("description")?.text().orEmpty()
-                val publishedAt = item.selectFirst("pubDate")?.text()?.takeIf(String::isNotBlank)
+                val publishedAt = normalizePublishedAt(item.selectFirst("pubDate")?.text()?.takeIf(String::isNotBlank))
                 ScrapedJob(
                     title = parsedTitle.title,
                     company = parsedTitle.company,
@@ -76,7 +81,7 @@ class DouAdapter(
                         ),
                     category = category,
                 )
-            }
+            }.filter { publicationWindow.accepts(it.publishedAt, context.since) }
 
         val nextCategory = categoryIndex + 1
         return ScrapePage(
@@ -90,6 +95,7 @@ class DouAdapter(
                     emptyMap()
                 },
             complete = nextCategory >= context.criteria.categories.size,
+            fetchedCount = items.size,
         )
     }
 
@@ -116,6 +122,11 @@ class DouAdapter(
         }
         return ParsedTitle(title, company, salary, locations.joinToString(", ").takeIf(String::isNotBlank), remote)
     }
+
+    private fun normalizePublishedAt(value: String?): String? =
+        value?.let {
+            runCatching { ZonedDateTime.parse(it, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toString() }.getOrDefault(it)
+        }
 
     private data class ParsedTitle(
         val title: String,

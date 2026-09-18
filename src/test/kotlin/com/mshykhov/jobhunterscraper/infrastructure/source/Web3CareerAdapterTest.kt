@@ -1,6 +1,7 @@
 package com.mshykhov.jobhunterscraper.infrastructure.source
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.mshykhov.jobhunterscraper.application.PublicationWindow
 import com.mshykhov.jobhunterscraper.application.SourceSchemaException
 import com.mshykhov.jobhunterscraper.application.model.JobSource
 import com.mshykhov.jobhunterscraper.application.model.ScrapeContext
@@ -14,14 +15,19 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import org.springframework.http.HttpStatus
+import java.time.Clock
+import java.time.Instant
+import java.time.ZoneOffset
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class Web3CareerAdapterTest {
     private val httpClient = mockk<SourceHttpClient>()
     private val jobHunterClient = mockk<JobHunterClient>()
+    private val publicationWindow = PublicationWindow(Clock.fixed(Instant.parse("2026-09-18T15:00:00Z"), ZoneOffset.UTC))
 
     @Test
     fun `parses JSON-LD and uses the optional source proxy`() {
@@ -40,7 +46,7 @@ class Web3CareerAdapterTest {
                         ),
                 ),
             )
-        val adapter = Web3CareerAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(maxPages = 10))
+        val adapter = Web3CareerAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(maxPages = 10), publicationWindow)
 
         val page = adapter.fetch(ScrapeContext(SearchCriteria(listOf("Kotlin"), remoteOnly = true)))
 
@@ -52,13 +58,33 @@ class Web3CareerAdapterTest {
         assertEquals("Europe, Ukraine", page.jobs.single().location)
         assertEquals(true, page.jobs.single().remote)
         assertEquals("Kotlin", page.jobs.single().category)
+        assertEquals("2026-09-17T10:00:00Z", page.jobs.single().publishedAt)
+    }
+
+    @Test
+    fun `stops pagination when the latest-first page is entirely older than since`() {
+        every { httpClient.get(any(), any(), any()) } returns fixture("fixtures/web3career/page.html")
+        every { jobHunterClient.proxies(JobSource.WEB3CAREER) } returns emptyList()
+        val adapter = Web3CareerAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(maxPages = 10), publicationWindow)
+
+        val page =
+            adapter.fetch(
+                ScrapeContext(
+                    SearchCriteria(listOf("Kotlin")),
+                    since = Instant.parse("2026-09-18T14:00:00Z"),
+                ),
+            )
+
+        assertTrue(page.complete)
+        assertEquals(emptyList(), page.jobs)
+        assertEquals(1, page.fetchedCount)
     }
 
     @Test
     fun `parses an unescaped tab in a JSON-LD description`() {
         every { httpClient.get(any(), any(), any()) } returns fixture("fixtures/web3career/page-control-character.html")
         every { jobHunterClient.proxies(JobSource.WEB3CAREER) } returns emptyList()
-        val adapter = Web3CareerAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties())
+        val adapter = Web3CareerAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(), publicationWindow)
 
         val page = adapter.fetch(ScrapeContext(SearchCriteria(listOf("Kotlin"))))
 
@@ -69,7 +95,7 @@ class Web3CareerAdapterTest {
     fun `fails instead of silently truncating at the page cap`() {
         every { httpClient.get(any(), any(), any()) } returns fixture("fixtures/web3career/page.html")
         every { jobHunterClient.proxies(JobSource.WEB3CAREER) } returns emptyList()
-        val adapter = Web3CareerAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(maxPages = 1))
+        val adapter = Web3CareerAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(maxPages = 1), publicationWindow)
 
         assertFailsWith<SourceSchemaException> {
             adapter.fetch(ScrapeContext(SearchCriteria(listOf("Kotlin"))))
@@ -80,7 +106,7 @@ class Web3CareerAdapterTest {
     fun `adds the page query after the canonical first page`() {
         every { httpClient.get(any(), any(), any()) } returns fixture("fixtures/web3career/page.html")
         every { jobHunterClient.proxies(JobSource.WEB3CAREER) } returns emptyList()
-        val adapter = Web3CareerAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(maxPages = 10))
+        val adapter = Web3CareerAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(maxPages = 10), publicationWindow)
 
         adapter.fetch(
             ScrapeContext(
@@ -101,7 +127,7 @@ class Web3CareerAdapterTest {
         every { httpClient.get(any(), any(), match { it?.host == "bad.test" }) } throws
             OutboundHttpException(HttpStatus.FORBIDDEN, target = "https://web3.career/kotlin+remote-jobs")
         every { httpClient.get(any(), any(), match { it?.host == "good.test" }) } returns fixture("fixtures/web3career/page.html")
-        val adapter = Web3CareerAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(httpAttempts = 2))
+        val adapter = Web3CareerAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(httpAttempts = 2), publicationWindow)
 
         val page = adapter.fetch(ScrapeContext(SearchCriteria(listOf("Kotlin"), remoteOnly = true)))
 
@@ -118,7 +144,7 @@ class Web3CareerAdapterTest {
             listOf(listOf(first), listOf(second))
         every { httpClient.get(any(), any(), any()) } throws
             OutboundHttpException(HttpStatus.FORBIDDEN, target = "https://web3.career/kotlin+remote-jobs")
-        val adapter = Web3CareerAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(httpAttempts = 2))
+        val adapter = Web3CareerAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(httpAttempts = 2), publicationWindow)
 
         assertFailsWith<OutboundHttpException> {
             adapter.fetch(ScrapeContext(SearchCriteria(listOf("Kotlin"), remoteOnly = true)))

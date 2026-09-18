@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.json.JsonReadFeature
 import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.mshykhov.jobhunterscraper.application.PublicationWindow
 import com.mshykhov.jobhunterscraper.application.SourceAdapter
 import com.mshykhov.jobhunterscraper.application.SourceSchemaException
 import com.mshykhov.jobhunterscraper.application.model.JobSource
@@ -17,6 +18,8 @@ import com.mshykhov.jobhunterscraper.infrastructure.http.SourceHttpClient
 import org.jsoup.Jsoup
 import org.springframework.stereotype.Component
 import java.net.URI
+import java.time.OffsetDateTime
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 @Component
@@ -25,6 +28,7 @@ class Web3CareerAdapter(
     private val objectMapper: ObjectMapper,
     private val jobHunterClient: JobHunterClient,
     private val properties: ScraperProperties,
+    private val publicationWindow: PublicationWindow,
 ) : SourceAdapter {
     override val source = JobSource.WEB3CAREER
     private val jsonLdReader = objectMapper.reader().with(JsonReadFeature.ALLOW_UNESCAPED_CONTROL_CHARS.mappedFeature())
@@ -58,13 +62,18 @@ class Web3CareerAdapter(
         if (postings.size > paths.size) {
             throw SourceSchemaException("Web3Career JSON-LD jobs do not match listing URLs")
         }
-        val jobs = postings.mapIndexed { index, posting -> parsePosting(posting, paths[index], category) }
+        val listedPostings = postings.mapIndexed { index, posting -> posting to paths[index] }
+        val jobs =
+            listedPostings
+                .filter { (posting) -> publicationWindow.accepts(publishedAt(posting), context.since) }
+                .map { (posting, path) -> parsePosting(posting, path, category) }
 
-        val hasNext = document.selectFirst("a[rel=next], a[aria-label=next]") != null
+        val allPreciselyOlder = postings.isNotEmpty() && postings.all { publicationWindow.isPreciselyOlder(publishedAt(it), context.since) }
+        val hasNext = !allPreciselyOlder && document.selectFirst("a[rel=next], a[aria-label=next]") != null
         if (hasNext && position.page >= properties.maxPages) {
             throw SourceSchemaException("Web3Career pagination exceeds ${properties.maxPages} pages")
         }
-        return page(context, position, jobs, hasNext)
+        return page(context, position, jobs, hasNext, postings.size)
     }
 
     private fun fetchDocument(url: String) =
@@ -125,12 +134,7 @@ class Web3CareerAdapter(
             salary = salary(posting),
             location = locations(posting.path("applicantLocationRequirements")).takeIf(String::isNotBlank),
             remote = locationType?.equals("TELECOMMUTE", ignoreCase = true),
-            publishedAt =
-                posting
-                    .path("datePosted")
-                    .asText()
-                    .trim()
-                    .takeIf(String::isNotBlank),
+            publishedAt = publishedAt(posting),
             rawData = objectMapper.convertValue(posting, MAP_TYPE),
             category = category,
         )
@@ -184,6 +188,16 @@ class Web3CareerAdapter(
             else -> ""
         }
 
+    private fun publishedAt(posting: JsonNode): String? {
+        val value =
+            posting
+                .path("datePosted")
+                .asText()
+                .trim()
+                .takeIf(String::isNotBlank) ?: return null
+        return runCatching { OffsetDateTime.parse(value, WEB3_DATE_TIME).toInstant().toString() }.getOrDefault(value)
+    }
+
     private fun position(context: ScrapeContext): Position {
         val categoryIndex = context.checkpoint[CHECKPOINT_CATEGORY]?.toIntOrNull() ?: 0
         val page = context.checkpoint[CHECKPOINT_PAGE]?.toIntOrNull() ?: 1
@@ -198,12 +212,14 @@ class Web3CareerAdapter(
         position: Position,
         jobs: List<ScrapedJob>,
         hasNext: Boolean,
+        fetchedCount: Int,
     ): ScrapePage {
         if (hasNext) {
             return ScrapePage(
                 jobs,
                 mapOf(CHECKPOINT_CATEGORY to position.categoryIndex.toString(), CHECKPOINT_PAGE to (position.page + 1).toString()),
                 complete = false,
+                fetchedCount = fetchedCount,
             )
         }
         val nextCategory = position.categoryIndex + 1
@@ -215,6 +231,7 @@ class Web3CareerAdapter(
                 emptyMap()
             },
             complete = nextCategory >= context.criteria.categories.size,
+            fetchedCount = fetchedCount,
         )
     }
 
@@ -231,6 +248,7 @@ class Web3CareerAdapter(
         val ZERO_RESULTS = Regex("\\b0 jobs? found\\b", RegexOption.IGNORE_CASE)
         val PROXY_RETRY_STATUSES = setOf(403, 429)
         val WHITESPACE = Regex("\\s+")
+        val WEB3_DATE_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss Z")
         val MAP_TYPE = object : TypeReference<Map<String, Any?>>() {}
         val DEFAULT_HEADERS =
             mapOf(

@@ -1,6 +1,7 @@
 package com.mshykhov.jobhunterscraper.infrastructure.source
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.mshykhov.jobhunterscraper.application.PublicationWindow
 import com.mshykhov.jobhunterscraper.application.SourceSchemaException
 import com.mshykhov.jobhunterscraper.application.model.JobCheckRequest
 import com.mshykhov.jobhunterscraper.application.model.JobCheckResult
@@ -28,6 +29,7 @@ class LinkedInAdapterTest {
     private val httpClient = mockk<SourceHttpClient>()
     private val jobHunterClient = mockk<JobHunterClient>()
     private val clock = Clock.fixed(Instant.parse("2026-09-18T15:00:00Z"), ZoneOffset.UTC)
+    private val publicationWindow = PublicationWindow(clock)
 
     @Test
     fun `searches and enriches with proxy credentials only in request bodies`() {
@@ -49,7 +51,7 @@ class LinkedInAdapterTest {
                 SourceProxy("http://user:secret@proxy.test:8080", "proxy.test", 8080, "user", "secret"),
                 SourceProxy("http://user:secret@proxy2.test:8080", "proxy2.test", 8080, "user", "secret"),
             )
-        val adapter = LinkedInAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(), clock)
+        val adapter = LinkedInAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(), publicationWindow)
 
         val page =
             adapter.fetch(
@@ -73,7 +75,7 @@ class LinkedInAdapterTest {
         assertFalse(searchUrl.captured.contains("secret"))
         assertEquals("http://127.0.0.1:8000/jobs/search", searchUrl.captured)
         val capturedSearchBody = searchBody.captured as Map<*, *>
-        assertEquals(49, capturedSearchBody["hours_old"])
+        assertEquals(1, capturedSearchBody["hours_old"])
         assertEquals(2, (capturedSearchBody["proxies"] as List<*>).size)
         assertTrue(capturedSearchBody.toString().contains("user:secret@proxy.test"))
         assertTrue(enrichBody.captured.toString().contains("user:secret@proxy.test"))
@@ -104,7 +106,7 @@ class LinkedInAdapterTest {
             )
         every { jobHunterClient.proxies(JobSource.LINKEDIN) } returns
             listOf(SourceProxy("http://user:secret@proxy.test:8080", "proxy.test", 8080, "user", "secret"))
-        val adapter = LinkedInAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(), clock)
+        val adapter = LinkedInAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(), publicationWindow)
 
         val page = adapter.fetch(ScrapeContext(SearchCriteria(listOf("Kotlin"))))
 
@@ -132,7 +134,7 @@ class LinkedInAdapterTest {
         }
         every { jobHunterClient.proxies(JobSource.LINKEDIN) } returns
             listOf(SourceProxy("http://user:secret@proxy.test:8080", "proxy.test", 8080, "user", "secret"))
-        val adapter = LinkedInAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(), clock)
+        val adapter = LinkedInAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(), publicationWindow)
 
         val page = adapter.fetch(ScrapeContext(SearchCriteria(listOf("Kotlin"))))
 
@@ -143,7 +145,7 @@ class LinkedInAdapterTest {
         assertEquals(listOf("https://www.linkedin.com/jobs/view/101"), page.jobs.map { it.url })
 
         val legacyCheckpoint = page.checkpoint - "processed0" + ("processed" to page.checkpoint.getValue("processed0"))
-        val restartedAdapter = LinkedInAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(), clock)
+        val restartedAdapter = LinkedInAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(), publicationWindow)
         val finalPage = restartedAdapter.fetch(ScrapeContext(SearchCriteria(listOf("Kotlin")), checkpoint = legacyCheckpoint))
 
         assertTrue(finalPage.complete)
@@ -171,7 +173,7 @@ class LinkedInAdapterTest {
             (1..20).map { id ->
                 SourceProxy("http://user:secret@proxy$id.test:8080", "proxy$id.test", 8080, "user", "secret")
             }
-        val adapter = LinkedInAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(), clock)
+        val adapter = LinkedInAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(), publicationWindow)
         var context = ScrapeContext(SearchCriteria(listOf("Kotlin")))
 
         repeat(3) {
@@ -212,7 +214,7 @@ class LinkedInAdapterTest {
             (1..20).map { id ->
                 SourceProxy("http://user:secret@proxy$id.test:8080", "proxy$id.test", 8080, "user", "secret")
             }
-        val adapter = LinkedInAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(), clock)
+        val adapter = LinkedInAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(), publicationWindow)
         val initial = ScrapeContext(SearchCriteria(listOf("Kotlin")))
 
         adapter.fetch(initial)
@@ -235,7 +237,7 @@ class LinkedInAdapterTest {
         }
         every { jobHunterClient.proxies(JobSource.LINKEDIN) } returns
             listOf(SourceProxy("http://user:secret@proxy.test:8080", "proxy.test", 8080, "user", "secret"))
-        val adapter = LinkedInAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(), clock)
+        val adapter = LinkedInAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(), publicationWindow)
 
         val firstPage =
             adapter.fetch(
@@ -262,18 +264,18 @@ class LinkedInAdapterTest {
         assertEquals(0, finalPage.fetchedCount)
         assertEquals(100, (searchBodies[0] as Map<*, *>)["results_wanted"])
         assertEquals(0, (searchBodies[0] as Map<*, *>)["offset"])
-        assertEquals(24, (searchBodies[0] as Map<*, *>)["hours_old"])
+        assertEquals(1, (searchBodies[0] as Map<*, *>)["hours_old"])
         assertEquals(100, (searchBodies[1] as Map<*, *>)["offset"])
         verify(exactly = 2) { httpClient.post(match { it.endsWith("/jobs/search") }, any(), any(), any()) }
     }
 
     @Test
-    fun `uses a one hour initial window and expands it from context since`() {
+    fun `uses a fixed one hour upstream window when context since is older`() {
         val searchBodies = mutableListOf<Any>()
         every { httpClient.post(match { it.endsWith("/jobs/search") }, capture(searchBodies), any(), any()) } returns "[]"
         every { jobHunterClient.proxies(JobSource.LINKEDIN) } returns
             listOf(SourceProxy("http://user:secret@proxy.test:8080", "proxy.test", 8080, "user", "secret"))
-        val adapter = LinkedInAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(), clock)
+        val adapter = LinkedInAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(), publicationWindow)
 
         adapter.fetch(ScrapeContext(SearchCriteria(listOf("Kotlin"))))
         adapter.fetch(
@@ -283,7 +285,7 @@ class LinkedInAdapterTest {
             ),
         )
 
-        assertEquals(listOf(1, 25), searchBodies.map { (it as Map<*, *>)["hours_old"] })
+        assertEquals(listOf(1, 1), searchBodies.map { (it as Map<*, *>)["hours_old"] })
     }
 
     @Test
@@ -298,7 +300,7 @@ class LinkedInAdapterTest {
         }
         every { jobHunterClient.proxies(JobSource.LINKEDIN) } returns
             listOf(SourceProxy("http://user:secret@proxy.test:8080", "proxy.test", 8080, "user", "secret"))
-        val adapter = LinkedInAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(maxPages = 1), clock)
+        val adapter = LinkedInAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(maxPages = 1), publicationWindow)
 
         assertFailsWith<SourceSchemaException> {
             adapter.fetch(ScrapeContext(SearchCriteria(listOf("Kotlin"))))
@@ -308,7 +310,7 @@ class LinkedInAdapterTest {
     @Test
     fun `fails before search when the proxy pool is empty`() {
         every { jobHunterClient.proxies(JobSource.LINKEDIN) } returns emptyList()
-        val adapter = LinkedInAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(), clock)
+        val adapter = LinkedInAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(), publicationWindow)
 
         assertFailsWith<SourceSchemaException> {
             adapter.fetch(ScrapeContext(SearchCriteria(listOf("Kotlin"))))
@@ -341,7 +343,7 @@ class LinkedInAdapterTest {
             )
         every { jobHunterClient.proxies(JobSource.LINKEDIN) } returns
             listOf(SourceProxy("http://user:secret@proxy.test:8080", "proxy.test", 8080, "user", "secret"))
-        val adapter = LinkedInAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(), clock)
+        val adapter = LinkedInAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(), publicationWindow)
 
         assertFailsWith<SourceSchemaException> {
             adapter.fetch(ScrapeContext(SearchCriteria(listOf("Kotlin"))))
@@ -349,17 +351,35 @@ class LinkedInAdapterTest {
     }
 
     @Test
-    fun `fails when the requested lookback exceeds the supported cap`() {
-        val adapter = LinkedInAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(), clock)
+    fun `filters a precise older candidate before check and enrichment`() {
+        every { httpClient.post(match { it.endsWith("/jobs/search") }, any(), any(), any()) } returns
+            """
+            [
+              {"title":"Old","job_url":"https://www.linkedin.com/jobs/view/101","date_posted":"2026-09-18T13:00:00Z"},
+              {"title":"Fresh","job_url":"https://www.linkedin.com/jobs/view/102","date_posted":"2026-09-18T14:45:00Z"}
+            ]
+            """.trimIndent()
+        every { httpClient.post(match { it.endsWith("/jobs/enrich") }, any(), any(), any()) } returns enrichmentResponse("102")
+        every { jobHunterClient.checkJobs(any()) } returns
+            JobCheckResult(
+                newUrls = listOf("https://www.linkedin.com/jobs/view/102"),
+                updatedUrls = emptyList(),
+                unchangedUrls = emptyList(),
+            )
+        every { jobHunterClient.proxies(JobSource.LINKEDIN) } returns
+            listOf(SourceProxy("http://user:secret@proxy.test:8080", "proxy.test", 8080, "user", "secret"))
+        val adapter = LinkedInAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(), publicationWindow)
 
-        assertFailsWith<SourceSchemaException> {
+        val page =
             adapter.fetch(
                 ScrapeContext(
                     SearchCriteria(listOf("Kotlin")),
-                    since = Instant.parse("2026-08-18T15:00:00Z"),
+                    since = Instant.parse("2026-09-18T14:00:00Z"),
                 ),
             )
-        }
+
+        assertEquals(listOf("https://www.linkedin.com/jobs/view/102"), page.jobs.map { it.url })
+        verify { jobHunterClient.checkJobs(match { it.single().url.endsWith("/102") }) }
     }
 
     private fun fixture(path: String): String = checkNotNull(javaClass.classLoader.getResource(path)).readText()
