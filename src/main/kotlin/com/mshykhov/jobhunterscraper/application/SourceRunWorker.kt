@@ -72,7 +72,9 @@ class SourceRunWorker(
                     Runnable {
                         try {
                             client.heartbeat(claim)
+                            availability.controlPlaneSucceeded(claim.source)
                         } catch (failure: RuntimeException) {
+                            availability.controlPlaneFailed(claim.source)
                             heartbeatFailure.compareAndSet(null, failure)
                         }
                     },

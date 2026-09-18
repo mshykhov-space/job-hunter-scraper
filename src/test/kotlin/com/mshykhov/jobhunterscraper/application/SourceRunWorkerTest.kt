@@ -26,9 +26,12 @@ import org.springframework.http.HttpStatus
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
+import java.time.ZoneId
 import java.time.ZoneOffset
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class SourceRunWorkerTest {
     private val heartbeatExecutor = Executors.newScheduledThreadPool(1)
@@ -64,6 +67,9 @@ class SourceRunWorkerTest {
     @Test
     fun `heartbeat lease loss during fetch fences batch and failure writes`() {
         val registry = observationRegistry()
+        val clock = MutableClock(FIXED_CLOCK.instant())
+        val properties = properties(Duration.ofMillis(5))
+        val availability = ScraperAvailability(properties, clock)
         val adapter =
             FakeAdapter {
                 Thread.sleep(60)
@@ -73,9 +79,10 @@ class SourceRunWorkerTest {
         val client = FakeClient(claim())
         client.onHeartbeat = {
             client.heartbeatObservation = registry.currentObservation
+            clock.advance(Duration.ofMinutes(2))
             throw LeaseLostException(HttpStatus.CONFLICT, "heartbeat")
         }
-        val worker = worker(adapter, client, registry, heartbeatInterval = Duration.ofMillis(5))
+        val worker = worker(adapter, client, registry, properties, availability)
 
         worker.poll(JobSource.DOU)
 
@@ -85,6 +92,30 @@ class SourceRunWorkerTest {
         assertTrue(client.batches.isEmpty())
         assertEquals(0, client.failed)
         assertEquals(0, client.completed)
+        assertEquals(setOf(JobSource.DOU), availability.unavailableSources())
+    }
+
+    @Test
+    fun `successful heartbeat keeps long running source available`() {
+        val clock = MutableClock(FIXED_CLOCK.instant())
+        val properties = properties(Duration.ofMillis(5))
+        val availability = ScraperAvailability(properties, clock)
+        val heartbeatReceived = CountDownLatch(1)
+        val adapter =
+            FakeAdapter {
+                assertTrue(heartbeatReceived.await(1, TimeUnit.SECONDS))
+                ScrapePage(emptyList(), emptyMap(), complete = true)
+            }
+        val client = FakeClient(claim())
+        client.onHeartbeat = {
+            clock.advance(Duration.ofMinutes(2))
+            heartbeatReceived.countDown()
+        }
+
+        worker(adapter, client, properties = properties, availability = availability).poll(JobSource.DOU)
+
+        assertTrue(client.heartbeats > 0)
+        assertTrue(availability.unavailableSources().isEmpty())
     }
 
     @Test
@@ -119,27 +150,28 @@ class SourceRunWorkerTest {
         adapter: SourceAdapter,
         client: FakeClient,
         registry: ObservationRegistry = observationRegistry(),
-        heartbeatInterval: Duration = Duration.ofHours(1),
-    ): SourceRunWorker {
-        val properties =
-            ScraperProperties(
-                enabled = true,
-                sources = setOf(JobSource.DOU),
-                heartbeatInterval = heartbeatInterval,
-                maxPages = 3,
-            )
-        return SourceRunWorker(
+        properties: ScraperProperties = properties(),
+        availability: ScraperAvailability = ScraperAvailability(properties, FIXED_CLOCK),
+    ): SourceRunWorker =
+        SourceRunWorker(
             listOf(adapter),
             client,
             properties,
             registry,
             SimpleMeterRegistry(),
             heartbeatExecutor,
-            ScraperAvailability(properties, FIXED_CLOCK),
+            availability,
             BatchIdFactory(jacksonObjectMapper()),
             BatchPartitioner(jacksonObjectMapper(), properties),
         )
-    }
+
+    private fun properties(heartbeatInterval: Duration = Duration.ofHours(1)) =
+        ScraperProperties(
+            enabled = true,
+            sources = setOf(JobSource.DOU),
+            heartbeatInterval = heartbeatInterval,
+            maxPages = 3,
+        )
 
     private fun observationRegistry(): ObservationRegistry =
         ObservationRegistry.create().also { registry ->
@@ -240,6 +272,24 @@ class SourceRunWorkerTest {
         val checkpoint: Map<String, String>,
         val fetchedCount: Int,
     )
+
+    private class MutableClock(
+        initial: Instant,
+    ) : Clock() {
+        @Volatile
+        private var current = initial
+
+        override fun getZone(): ZoneId = ZoneOffset.UTC
+
+        override fun withZone(zone: ZoneId): Clock = this
+
+        override fun instant(): Instant = current
+
+        @Synchronized
+        fun advance(duration: Duration) {
+            current = current.plus(duration)
+        }
+    }
 
     private companion object {
         val FIXED_CLOCK: Clock = Clock.fixed(Instant.parse("2026-09-18T00:00:00Z"), ZoneOffset.UTC)
