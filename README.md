@@ -36,7 +36,7 @@ the desired sources on that API, and supply these environment variables:
 | `OTLP_TRACES_ENDPOINT` | Complete OTLP/HTTP traces URL |
 
 Keep credentials in the environment or a secret store. The machine identity needs
-`read:jobs` and `write:jobs`. Production secrets come from Doppler through External
+`read:jobs`, `write:jobs`, and `read:proxies`. Production secrets come from Doppler through External
 Secrets Operator. See [operations](docs/operations.md) for recovery and rollout.
 
 ## Sources

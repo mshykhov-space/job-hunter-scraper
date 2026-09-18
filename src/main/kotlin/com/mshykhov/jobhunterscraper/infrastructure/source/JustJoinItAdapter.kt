@@ -95,10 +95,12 @@ class JustJoinItAdapter(
                     unit = employment.requiredText("unit", source.id),
                 )
             }
+        val description = fetchDescription(slug)
         return ScrapedJob(
             title = title,
             company = offer.optionalText("companyName", source.id),
             url = "https://justjoin.it/job-offer/$slug",
+            description = description,
             source = source,
             salary = salary,
             location = "Remote",
@@ -119,11 +121,20 @@ class JustJoinItAdapter(
         )
     }
 
+    private fun fetchDescription(slug: String): String {
+        val detail = objectMapper.readSourceTree(httpClient.get(detailUrl(slug)), source.id)
+        if (!detail.isObject) throw SourceSchemaException("justjoinit detail response must be an object")
+        return htmlToText(detail.requiredText("body", source.id)).takeIf(String::isNotBlank)
+            ?: throw SourceSchemaException("justjoinit detail response has an empty description")
+    }
+
     private fun buildUrl(offset: Int): String =
         properties.endpoint(source, DEFAULT_ENDPOINT).trimEnd('?') +
             "?from=$offset&itemsCount=$PAGE_SIZE" +
             "&experienceLevels=senior&experienceLevels=manager" +
             "&sortBy=publishedAt&orderBy=descending"
+
+    private fun detailUrl(slug: String): String = "${properties.endpoint(source, DEFAULT_ENDPOINT).trimEnd('/', '?')}/$slug"
 
     private companion object {
         const val DEFAULT_ENDPOINT = "https://justjoin.it/api/candidate-api/offers"
