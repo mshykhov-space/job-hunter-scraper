@@ -64,6 +64,7 @@ class LandingJobsAdapter(
                 if (!value.isBoolean) throw SourceSchemaException("landingjobs response has invalid boolean 'remote'")
                 value.booleanValue()
             }
+        if (context.criteria.remoteOnly && remote == false) return null
         val location =
             if (remote == true) {
                 "Remote"

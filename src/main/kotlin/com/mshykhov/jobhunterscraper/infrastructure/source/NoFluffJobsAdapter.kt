@@ -86,7 +86,7 @@ class NoFluffJobsAdapter(
                 if (!value.isBoolean) throw SourceSchemaException("nofluffjobs response has invalid boolean 'fullyRemote'")
                 value.booleanValue()
             }
-        if (context.criteria.remoteOnly && remote != true) return null
+        if (context.criteria.remoteOnly && remote == false) return null
         val detail = objectMapper.readSourceTree(httpClient.get(detailUrl(slug)), source.id)
         val description = composeDescription(detail)
 

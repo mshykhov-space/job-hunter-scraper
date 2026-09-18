@@ -37,6 +37,16 @@ class LandingJobsAdapterTest {
     }
 
     @Test
+    fun `remote-only criteria exclude explicit false and preserve unknown remote`() {
+        val page =
+            adapter(RecordingSourceHttpClient(getResponse = { fixture("landingjobs/page.json") }))
+                .fetch(context(remoteOnly = true))
+
+        assertEquals(listOf("Kotlin Developer"), page.jobs.map { it.title })
+        assertNull(page.jobs.single().remote)
+    }
+
+    @Test
     fun `fails rather than truncating a full final allowed page`() {
         val mapper = jacksonObjectMapper()
         val offer = mapper.readTree(fixture("landingjobs/page.json")).first()
@@ -53,5 +63,6 @@ class LandingJobsAdapterTest {
 
     private fun adapter(client: RecordingSourceHttpClient) = LandingJobsAdapter(client, jacksonObjectMapper(), ScraperProperties())
 
-    private fun context() = ScrapeContext(SearchCriteria(categories = listOf("Java", "Kotlin")))
+    private fun context(remoteOnly: Boolean = false) =
+        ScrapeContext(SearchCriteria(categories = listOf("Java", "Kotlin"), remoteOnly = remoteOnly))
 }

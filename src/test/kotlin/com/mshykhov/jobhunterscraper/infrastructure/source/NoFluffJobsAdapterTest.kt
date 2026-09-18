@@ -74,9 +74,20 @@ class NoFluffJobsAdapterTest {
                 postResponse = { _, _ -> search },
             )
 
-        val job = adapter(client).fetch(context()).jobs.single()
+        val job = adapter(client).fetch(context(remoteOnly = true)).jobs.single()
 
         assertEquals(null, job.remote)
+    }
+
+    @Test
+    fun `filters explicitly on-site jobs for remote-only criteria before detail fetch`() {
+        val search = fixture("nofluffjobs/search.json").replace("\"fullyRemote\": true", "\"fullyRemote\": false")
+        val client = RecordingSourceHttpClient(postResponse = { _, _ -> search })
+
+        val page = adapter(client).fetch(context(remoteOnly = true))
+
+        assertTrue(page.jobs.isEmpty())
+        assertTrue(client.getUrls.isEmpty())
     }
 
     @Test
@@ -90,5 +101,5 @@ class NoFluffJobsAdapterTest {
 
     private fun adapter(client: RecordingSourceHttpClient) = NoFluffJobsAdapter(client, jacksonObjectMapper(), ScraperProperties())
 
-    private fun context() = ScrapeContext(SearchCriteria(categories = listOf("Java")))
+    private fun context(remoteOnly: Boolean = false) = ScrapeContext(SearchCriteria(categories = listOf("Java"), remoteOnly = remoteOnly))
 }
