@@ -83,6 +83,69 @@ class LinkedInAdapterTest {
     }
 
     @Test
+    fun `treats negative JobSpy remote inference as unknown`() {
+        val search = fixture("fixtures/linkedin/search.json").replace("\"is_remote\": true", "\"is_remote\": false")
+        every { httpClient.post(match { it.endsWith("/jobs/search") }, any(), any(), any()) } returns search
+        every { httpClient.post(match { it.endsWith("/jobs/enrich") }, any(), any(), any()) } returns
+            fixture("fixtures/linkedin/enrich.json")
+        every { jobHunterClient.checkJobs(any()) } returns
+            JobCheckResult(
+                newUrls = listOf("https://www.linkedin.com/jobs/view/101"),
+                updatedUrls = emptyList(),
+                unchangedUrls = listOf("https://www.linkedin.com/jobs/view/102"),
+            )
+        every { jobHunterClient.proxies(JobSource.LINKEDIN) } returns
+            listOf(SourceProxy("http://user:secret@proxy.test:8080", "proxy.test", 8080, "user", "secret"))
+        val adapter = LinkedInAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(), publicationWindow)
+
+        val page = adapter.fetch(ScrapeContext(SearchCriteria(listOf("Kotlin"), remoteOnly = true)))
+
+        assertEquals(null, page.jobs.single().remote)
+    }
+
+    @Test
+    fun `preserves search fields when enrichment values are null`() {
+        every { httpClient.post(match { it.endsWith("/jobs/search") }, any(), any(), any()) } returns
+            fixture("fixtures/linkedin/search.json")
+        every { httpClient.post(match { it.endsWith("/jobs/enrich") }, any(), any(), any()) } returns
+            """
+            {
+              "results": [
+                {
+                  "url": "https://www.linkedin.com/jobs/view/101",
+                  "status": "success",
+                  "data": {
+                    "company_name": null,
+                    "description": null,
+                    "salary": null,
+                    "location": null,
+                    "published_at": null
+                  }
+                }
+              ]
+            }
+            """.trimIndent()
+        every { jobHunterClient.checkJobs(any()) } returns
+            JobCheckResult(
+                newUrls = listOf("https://www.linkedin.com/jobs/view/101"),
+                updatedUrls = emptyList(),
+                unchangedUrls = listOf("https://www.linkedin.com/jobs/view/102"),
+            )
+        every { jobHunterClient.proxies(JobSource.LINKEDIN) } returns
+            listOf(SourceProxy("http://user:secret@proxy.test:8080", "proxy.test", 8080, "user", "secret"))
+        val adapter = LinkedInAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(), publicationWindow)
+
+        val page = adapter.fetch(ScrapeContext(SearchCriteria(listOf("Kotlin"))))
+
+        val job = page.jobs.single()
+        assertEquals("Acme", job.company)
+        assertEquals("", job.description)
+        assertEquals("100000-140000 USD", job.salary)
+        assertEquals("Europe", job.location)
+        assertEquals("2026-09-17", job.publishedAt)
+    }
+
+    @Test
     fun `keeps unknown remote null and completes the last query`() {
         every { httpClient.post(match { it.endsWith("/jobs/search") }, any(), any(), any()) } returns
             fixture("fixtures/linkedin/search.json")
