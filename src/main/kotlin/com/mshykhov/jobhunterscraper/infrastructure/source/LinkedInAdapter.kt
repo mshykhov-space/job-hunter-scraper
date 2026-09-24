@@ -188,7 +188,7 @@ class LinkedInAdapter(
                     .asText()
                     .trim()
                     .takeIf(String::isNotBlank),
-            remote = node.path("is_remote").takeIf(JsonNode::isBoolean)?.booleanValue(),
+            remote = node.path("is_remote").takeIf { it.isBoolean && it.booleanValue() }?.booleanValue(),
             publishedAt =
                 node
                     .path("date_posted")
@@ -292,35 +292,22 @@ class LinkedInAdapter(
                     objectMapper.convertValue<Map<String, Any?>>(data, MAP_TYPE) +
                     mapOf("enrichmentStatus" to status)
             job.copy(
-                company =
-                    data
-                        .path("company_name")
-                        .asText()
-                        .trim()
-                        .takeIf(String::isNotBlank) ?: job.company,
-                description = data.path("description").asText(),
-                salary =
-                    data
-                        .path("salary")
-                        .asText()
-                        .trim()
-                        .takeIf(String::isNotBlank) ?: job.salary,
-                location =
-                    data
-                        .path("location")
-                        .asText()
-                        .trim()
-                        .takeIf(String::isNotBlank) ?: job.location,
-                publishedAt =
-                    data
-                        .path("published_at")
-                        .asText()
-                        .trim()
-                        .takeIf(String::isNotBlank) ?: job.publishedAt,
+                company = data.textOrNull("company_name") ?: job.company,
+                description = data.textOrNull("description") ?: job.description,
+                salary = data.textOrNull("salary") ?: job.salary,
+                location = data.textOrNull("location") ?: job.location,
+                publishedAt = data.textOrNull("published_at") ?: job.publishedAt,
                 rawData = rawData,
             )
         }
     }
+
+    private fun JsonNode.textOrNull(field: String): String? =
+        path(field)
+            .takeUnless { it.isMissingNode || it.isNull }
+            ?.asText()
+            ?.trim()
+            ?.takeIf(String::isNotBlank)
 
     private fun position(
         context: ScrapeContext,
