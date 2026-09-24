@@ -1,6 +1,6 @@
 # Job Hunter Scraper
 
-Typed vacancy collection for [Job Hunter](https://github.com/mshykhov/job-hunter).
+Typed vacancy collection for [Job Hunter](https://github.com/mshykhov-space/job-hunter).
 The service runs source adapters and submits normalized jobs to the Kotlin API.
 PostgreSQL behind the API owns schedules, leases, retries, checkpoints, and ingestion
 receipts. The scraper has no database or persistent volume.
@@ -87,4 +87,4 @@ npm run rulesync:verify
 ```
 
 Rulesync manages repository instructions from `.rulesync/`. Release tags `vX.Y.Z`
-build and publish `ghcr.io/mshykhov/job-hunter-scraper:X.Y.Z` through GitHub Actions.
+build and publish `ghcr.io/mshykhov-space/job-hunter-scraper:X.Y.Z` through GitHub Actions.
