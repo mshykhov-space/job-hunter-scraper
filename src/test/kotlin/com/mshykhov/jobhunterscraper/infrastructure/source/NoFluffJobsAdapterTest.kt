@@ -105,12 +105,20 @@ class NoFluffJobsAdapterTest {
     }
 
     @Test
-    fun `fails when upstream reports more pages than the configured coverage cap`() {
-        val client = RecordingSourceHttpClient(postResponse = { _, _ -> fixture("nofluffjobs/search.json") })
+    fun `returns collected jobs before failing at the page cap`() {
+        val client =
+            RecordingSourceHttpClient(
+                getResponse = { fixture("nofluffjobs/detail.json") },
+                postResponse = { _, _ -> fixture("nofluffjobs/search.json") },
+            )
         val adapter = NoFluffJobsAdapter(client, jacksonObjectMapper(), ScraperProperties(maxPages = 1), publicationWindow())
+        val page = adapter.fetch(context())
 
-        assertThrows(SourceSchemaException::class.java) { adapter.fetch(context()) }
-        assertTrue(client.getUrls.isEmpty())
+        assertEquals(1, page.jobs.size)
+        assertFalse(page.complete)
+        assertThrows(SourceSchemaException::class.java) { adapter.fetch(context().copy(checkpoint = page.checkpoint)) }
+        assertEquals(1, client.getUrls.size)
+        assertEquals(1, client.postUrls.size)
     }
 
     private fun adapter(client: RecordingSourceHttpClient) =

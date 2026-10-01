@@ -9,6 +9,7 @@ import com.mshykhov.jobhunterscraper.infrastructure.config.ScraperProperties
 import com.mshykhov.jobhunterscraper.infrastructure.http.SourceHttpClient
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
@@ -41,13 +42,16 @@ class DjinniAdapterTest {
     }
 
     @Test
-    fun `fails instead of silently truncating at the page cap`() {
+    fun `returns collected jobs before failing at the page cap`() {
         every { httpClient.get(any(), any(), any()) } returns fixture("fixtures/djinni/page.html")
         val adapter = DjinniAdapter(httpClient, ObjectMapper(), ScraperProperties(maxPages = 1), publicationWindow)
 
-        assertFailsWith<SourceSchemaException> {
-            adapter.fetch(ScrapeContext(SearchCriteria(listOf("Kotlin"))))
-        }
+        val context = ScrapeContext(SearchCriteria(listOf("Kotlin")))
+        val page = adapter.fetch(context)
+        assertEquals(2, page.jobs.size)
+        assertFalse(page.complete)
+        assertFailsWith<SourceSchemaException> { adapter.fetch(context.copy(checkpoint = page.checkpoint)) }
+        verify(exactly = 1) { httpClient.get(any(), any(), any()) }
     }
 
     @Test

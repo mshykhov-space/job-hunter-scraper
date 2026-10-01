@@ -66,20 +66,28 @@ class JustJoinItAdapterTest {
     }
 
     @Test
-    fun `fails when response requires more pages than the configured coverage cap`() {
+    fun `returns collected jobs before failing at the page cap`() {
         val mapper = jacksonObjectMapper()
         val response = mapper.readTree(fixture("justjoinit/page.json"))
         (response["meta"] as com.fasterxml.jackson.databind.node.ObjectNode).put("totalItems", 200)
         (response["meta"]["next"] as com.fasterxml.jackson.databind.node.ObjectNode).put("cursor", 100).put("itemsCount", 4)
+        val client =
+            RecordingSourceHttpClient(getResponse = { url ->
+                if (url.contains("?from=")) response.toString() else fixture("justjoinit/detail.json")
+            })
         val adapter =
             JustJoinItAdapter(
-                RecordingSourceHttpClient(getResponse = { response.toString() }),
+                client,
                 mapper,
                 ScraperProperties(maxPages = 1),
                 publicationWindow(),
             )
 
-        assertThrows(SourceSchemaException::class.java) { adapter.fetch(context()) }
+        val page = adapter.fetch(context())
+        assertEquals(2, page.jobs.size)
+        assertTrue(!page.complete)
+        assertThrows(SourceSchemaException::class.java) { adapter.fetch(context().copy(checkpoint = page.checkpoint)) }
+        assertEquals(3, client.getUrls.size)
     }
 
     @Test

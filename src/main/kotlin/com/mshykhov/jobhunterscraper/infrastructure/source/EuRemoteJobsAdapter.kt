@@ -90,9 +90,6 @@ class EuRemoteJobsAdapter(
         if (cards.size > PAGE_SIZE || cards.isEmpty() && (hasMore || html.isNotBlank() && !ZERO_RESULTS.containsMatchIn(html))) {
             throw SourceSchemaException("euremotejobs search response has invalid cards")
         }
-        if (hasMore && page >= properties.maxPages) {
-            throw SourceSchemaException("euremotejobs pagination exceeds configured maxPages=${properties.maxPages}")
-        }
         val listings = cards.map { it to detailUrl(it.attr("href"), endpoint) }
         val fingerprint =
             MessageDigest

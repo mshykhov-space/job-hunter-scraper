@@ -92,14 +92,17 @@ class Web3CareerAdapterTest {
     }
 
     @Test
-    fun `fails instead of silently truncating at the page cap`() {
+    fun `returns collected jobs before failing at the page cap`() {
         every { httpClient.get(any(), any(), any()) } returns fixture("fixtures/web3career/page.html")
         every { jobHunterClient.proxies(JobSource.WEB3CAREER) } returns emptyList()
         val adapter = Web3CareerAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(maxPages = 1), publicationWindow)
 
-        assertFailsWith<SourceSchemaException> {
-            adapter.fetch(ScrapeContext(SearchCriteria(listOf("Kotlin"))))
-        }
+        val context = ScrapeContext(SearchCriteria(listOf("Kotlin")))
+        val page = adapter.fetch(context)
+        assertEquals(1, page.jobs.size)
+        assertFalse(page.complete)
+        assertFailsWith<SourceSchemaException> { adapter.fetch(context.copy(checkpoint = page.checkpoint)) }
+        verify(exactly = 1) { httpClient.get(any(), any(), any()) }
     }
 
     @Test

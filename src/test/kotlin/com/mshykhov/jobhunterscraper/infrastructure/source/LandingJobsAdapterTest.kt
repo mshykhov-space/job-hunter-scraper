@@ -71,19 +71,24 @@ class LandingJobsAdapterTest {
     }
 
     @Test
-    fun `fails rather than truncating a full final allowed page`() {
+    fun `returns collected jobs before failing at the page cap`() {
         val mapper = jacksonObjectMapper()
         val offer = mapper.readTree(fixture("landingjobs/page.json")).first()
         val fullPage = mapper.writeValueAsString(List(50) { offer })
+        val client = RecordingSourceHttpClient(getResponse = { fullPage })
         val adapter =
             LandingJobsAdapter(
-                RecordingSourceHttpClient(getResponse = { fullPage }),
+                client,
                 mapper,
                 ScraperProperties(maxPages = 1),
                 publicationWindow(),
             )
 
-        assertThrows(SourceSchemaException::class.java) { adapter.fetch(context()) }
+        val page = adapter.fetch(context())
+        assertEquals(50, page.jobs.size)
+        assertTrue(!page.complete)
+        assertThrows(SourceSchemaException::class.java) { adapter.fetch(context().copy(checkpoint = page.checkpoint)) }
+        assertEquals(1, client.getUrls.size)
     }
 
     private fun adapter(client: RecordingSourceHttpClient) =
