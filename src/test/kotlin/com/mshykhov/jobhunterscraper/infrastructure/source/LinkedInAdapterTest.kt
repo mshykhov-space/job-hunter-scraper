@@ -16,6 +16,8 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.CsvSource
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
@@ -351,23 +353,46 @@ class LinkedInAdapterTest {
         assertEquals(listOf(1, 1), searchBodies.map { (it as Map<*, *>)["hours_old"] })
     }
 
-    @Test
-    fun `fails loudly when a full page reaches the configured pagination cap`() {
+    @ParameterizedTest
+    @CsvSource("1,0,100", "1000,900,1000")
+    fun `returns the last collected page before failing at the coverage cap`(
+        maxPages: Int,
+        offset: Int,
+        nextOffset: Int,
+    ) {
         every { httpClient.post(match { it.endsWith("/jobs/search") }, any(), any(), any()) } returns fullSearchPage()
         every { jobHunterClient.checkJobs(any()) } answers {
+            val requests = arg<List<JobCheckRequest>>(0)
             JobCheckResult(
-                newUrls = emptyList(),
+                newUrls = listOf(requests.last().url),
                 updatedUrls = emptyList(),
-                unchangedUrls = arg<List<JobCheckRequest>>(0).map { it.url },
+                unchangedUrls = requests.dropLast(1).map { it.url },
             )
         }
+        every { httpClient.post(match { it.endsWith("/jobs/enrich") }, any(), any(), any()) } returns
+            """
+            {"results":[{"url":"https://www.linkedin.com/jobs/view/100","status":"success",
+              "data":{"description":"Final collected vacancy"}}]}
+            """.trimIndent()
         every { jobHunterClient.proxies(JobSource.LINKEDIN) } returns
             listOf(SourceProxy("http://user:secret@proxy.test:8080", "proxy.test", 8080, "user", "secret"))
-        val adapter = LinkedInAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(maxPages = 1), publicationWindow)
+        val adapter =
+            LinkedInAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(maxPages = maxPages), publicationWindow)
+        val context = ScrapeContext(SearchCriteria(listOf("Kotlin")), checkpoint = mapOf("offset" to offset.toString()))
 
-        assertFailsWith<SourceSchemaException> {
-            adapter.fetch(ScrapeContext(SearchCriteria(listOf("Kotlin"))))
-        }
+        val page = adapter.fetch(context)
+
+        assertEquals("Final collected vacancy", page.jobs.single().description)
+        assertEquals(100, page.fetchedCount)
+        assertEquals(nextOffset.toString(), page.checkpoint["offset"])
+        assertFalse(page.complete)
+        val failure =
+            assertFailsWith<SourceSchemaException> {
+                adapter.fetch(context.copy(checkpoint = page.checkpoint))
+            }
+        assertTrue(failure.message.orEmpty().contains("coverage cap"))
+        verify(exactly = 1) { httpClient.post(match { it.endsWith("/jobs/search") }, any(), any(), any()) }
+        verify(exactly = 1) { httpClient.post(match { it.endsWith("/jobs/enrich") }, any(), any(), any()) }
     }
 
     @Test

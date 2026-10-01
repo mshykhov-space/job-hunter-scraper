@@ -319,8 +319,11 @@ class LinkedInAdapter(
         if (categoryIndex !in context.criteria.categories.indices || locationIndex !in locations.indices) {
             throw SourceSchemaException("Invalid LinkedIn checkpoint")
         }
-        if (offset < 0 || offset % PAGE_SIZE != 0 || offset / PAGE_SIZE >= searchPageLimit()) {
+        if (offset < 0 || offset % PAGE_SIZE != 0) {
             throw SourceSchemaException("Invalid LinkedIn offset checkpoint")
+        }
+        if (offset / PAGE_SIZE >= searchPageLimit()) {
+            throw SourceSchemaException("LinkedIn search reached the ${searchPageLimit() * PAGE_SIZE} result coverage cap")
         }
         return Position(categoryIndex, locationIndex, offset)
     }
@@ -356,10 +359,6 @@ class LinkedInAdapter(
         fetchedCount: Int,
     ): ScrapePage {
         if (fetchedCount == PAGE_SIZE) {
-            val nextPage = position.offset / PAGE_SIZE + 1
-            if (nextPage >= searchPageLimit()) {
-                throw SourceSchemaException("LinkedIn search reached the ${searchPageLimit() * PAGE_SIZE} result coverage cap")
-            }
             return ScrapePage(
                 jobs,
                 mapOf(
