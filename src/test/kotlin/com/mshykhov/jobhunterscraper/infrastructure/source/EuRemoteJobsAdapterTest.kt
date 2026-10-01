@@ -3,9 +3,15 @@ package com.mshykhov.jobhunterscraper.infrastructure.source
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.mshykhov.jobhunterscraper.application.PublicationWindow
 import com.mshykhov.jobhunterscraper.application.SourceSchemaException
+import com.mshykhov.jobhunterscraper.application.model.JobSource
 import com.mshykhov.jobhunterscraper.application.model.ScrapeContext
 import com.mshykhov.jobhunterscraper.application.model.SearchCriteria
+import com.mshykhov.jobhunterscraper.application.model.SourceProxy
+import com.mshykhov.jobhunterscraper.infrastructure.api.JobHunterClient
 import com.mshykhov.jobhunterscraper.infrastructure.config.ScraperProperties
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.verify
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -17,6 +23,23 @@ import java.time.ZoneOffset
 
 class EuRemoteJobsAdapterTest {
     private val mapper = jacksonObjectMapper()
+    private val jobHunterClient = mockk<JobHunterClient>()
+
+    init {
+        every { jobHunterClient.proxies(JobSource.EUREMOTEJOBS) } returns
+            listOf(SourceProxy("http://user:secret@proxy.test:8080", "proxy.test", 8080, "user", "secret"))
+    }
+
+    @Test
+    fun `fails before public requests when the API proxy pool is empty`() {
+        every { jobHunterClient.proxies(JobSource.EUREMOTEJOBS) } returns emptyList()
+        val client = client()
+
+        assertThrows(SourceSchemaException::class.java) { adapter(client).fetch(context()) }
+
+        assertTrue(client.getUrls.isEmpty())
+        assertTrue(client.postUrls.isEmpty())
+    }
 
     @Test
     fun `collects exact technology through public search and advances pages`() {
@@ -43,6 +66,9 @@ class EuRemoteJobsAdapterTest {
         assertEquals("2", page.checkpoint["page"])
         assertFalse(page.complete)
         assertTrue(client.getUrls.none { it.contains("wp-json") })
+        assertEquals(3, client.requestProxies.size)
+        assertTrue(client.requestProxies.all { it?.host == "proxy.test" }, "Every public source request must use the API proxy")
+        verify(exactly = 1) { jobHunterClient.proxies(JobSource.EUREMOTEJOBS) }
         assertFalse(page.checkpoint.values.any { it.contains("fixture-nonce") })
     }
 
@@ -216,6 +242,7 @@ class EuRemoteJobsAdapterTest {
     ) = EuRemoteJobsAdapter(
         client,
         mapper,
+        jobHunterClient,
         properties,
         PublicationWindow(Clock.fixed(now, ZoneOffset.UTC)),
     )

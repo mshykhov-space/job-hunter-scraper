@@ -39,6 +39,12 @@ to `wp-admin/admin-ajax.php` with `action=erj_ajax_search`. Technology matching 
 exact and case-insensitive; Java does not match Javascript. The nonce is fetched
 for each page and never stored in checkpoints, jobs, or telemetry.
 
+Every public request uses the source proxy and fingerprint supplied by the API.
+One proxy is retained across the homepage, form request, and job details for a
+page. An unavailable proxy pool fails the attempt without a direct fallback;
+the API rotates the source proxy on the next page or retry. Proxy credentials and
+fingerprints never enter checkpoints or job data.
+
 The public result supplies HTML cards and a boolean `has_more`. Traverse all
 reported pages because featured records can change ordering. A repeated page,
 malformed response, failed detail, or coverage cap fails the run. A missing exact
