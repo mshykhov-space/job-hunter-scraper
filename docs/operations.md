@@ -15,10 +15,12 @@ reconstruct an immutable historical snapshot. Sources with date-only timestamps
 use calendar-day overlap. A new run does not backfill outages older than the
 configured lookback.
 
-LinkedIn returns the last collected page for acknowledged ingestion before its
-next fetch reports the configured or upstream coverage cap. The checkpoint then
-retains that boundary, so retries do not discard or refetch the acknowledged
-portion. A capped run still fails explicitly rather than claiming full coverage.
+Adapters return the last allowed page for acknowledged ingestion before a
+subsequent fetch reports the configured or upstream coverage cap. The worker
+likewise acknowledges its final page before reporting incomplete coverage when
+the total run budget is exhausted. Checkpoints retain the boundary, so retries
+do not discard or refetch the acknowledged portion. A capped run still fails
+explicitly rather than claiming full coverage.
 
 The API schedules successful sources 15 minutes after completion. Failed runs retry with
 bounded backoff before a fresh scheduled run. The scraper polls for claims every

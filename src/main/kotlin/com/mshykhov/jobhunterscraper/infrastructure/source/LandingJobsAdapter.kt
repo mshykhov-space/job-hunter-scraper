@@ -35,9 +35,6 @@ class LandingJobsAdapter(
 
         val jobs = root.mapNotNull { mapOffer(it, context) }
         val hasNext = root.size() == PAGE_SIZE
-        if (hasNext && pageNumber >= properties.maxPages) {
-            throw SourceSchemaException("landingjobs pagination exceeds configured maxPages=${properties.maxPages}")
-        }
         return ScrapePage(
             jobs = jobs,
             checkpoint = mapOf(CHECKPOINT to if (hasNext) (offset + PAGE_SIZE).toString() else offset.toString()),

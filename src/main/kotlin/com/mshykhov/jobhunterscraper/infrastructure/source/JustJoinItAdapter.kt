@@ -58,9 +58,6 @@ class JustJoinItAdapter(
         if (hasNext && (data.isEmpty || nextCursor <= offset)) {
             throw SourceSchemaException("justjoinit response has a non-advancing cursor")
         }
-        if (hasNext && pageNumber >= properties.maxPages) {
-            throw SourceSchemaException("justjoinit pagination exceeds configured maxPages=${properties.maxPages}")
-        }
         return ScrapePage(
             jobs = jobs,
             checkpoint = mapOf(CHECKPOINT to nextCursor.toString()),

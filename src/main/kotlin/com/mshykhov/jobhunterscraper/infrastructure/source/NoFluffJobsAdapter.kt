@@ -49,9 +49,6 @@ class NoFluffJobsAdapter(
         if (totalPages < 0 || totalCount < 0) {
             throw SourceSchemaException("nofluffjobs response has invalid pagination metadata")
         }
-        if (totalPages > properties.maxPages) {
-            throw SourceSchemaException("nofluffjobs pagination exceeds configured maxPages=${properties.maxPages}")
-        }
 
         val seenRemote = mutableSetOf<String>()
         val jobs =

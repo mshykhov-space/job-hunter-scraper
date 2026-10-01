@@ -179,10 +179,16 @@ class EuRemoteJobsAdapterTest {
     }
 
     @Test
-    fun `fails when another page would exceed the configured coverage cap`() {
-        val adapter = adapter(client(), ScraperProperties(maxPages = 1))
+    fun `returns collected jobs before failing at the page cap`() {
+        val client = client()
+        val adapter = adapter(client, ScraperProperties(maxPages = 1))
+        val page = adapter.fetch(context())
 
-        assertThrows(SourceSchemaException::class.java) { adapter.fetch(context()) }
+        assertEquals(1, page.jobs.size)
+        assertFalse(page.complete)
+        assertThrows(SourceSchemaException::class.java) { adapter.fetch(context().copy(checkpoint = page.checkpoint)) }
+        assertEquals(2, client.getUrls.size)
+        assertEquals(1, client.postUrls.size)
     }
 
     @Test

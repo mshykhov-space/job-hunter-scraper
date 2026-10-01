@@ -68,6 +68,24 @@ class SourceRunWorkerTest {
     }
 
     @Test
+    fun `acknowledges the final allowed page before reporting incomplete coverage`() {
+        val adapter =
+            FakeAdapter { context ->
+                val page = context.checkpoint.getValue("page").toInt()
+                ScrapePage(listOf(job(page)), mapOf("page" to (page + 1).toString()), complete = false, fetchedCount = 1)
+            }
+        val client = FakeClient(claim())
+
+        worker(adapter, client).poll(JobSource.DOU)
+
+        assertEquals(3, adapter.fetches)
+        assertEquals(listOf("Job 1", "Job 2", "Job 3"), client.batches.flatMap { it.jobs }.map { it.title })
+        assertEquals(mapOf("page" to "4"), client.batches.last().checkpoint)
+        assertEquals(0, client.completed)
+        assertEquals(listOf("COVERAGE_INCOMPLETE"), client.failureReasons)
+    }
+
+    @Test
     fun `filters publication window without changing page accounting`() {
         val since = FIXED_CLOCK.instant().minusSeconds(3600)
         val jobs =

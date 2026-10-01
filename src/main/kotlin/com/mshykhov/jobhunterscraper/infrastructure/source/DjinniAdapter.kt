@@ -59,9 +59,6 @@ class DjinniAdapter(
                 .mapIndexed { index, posting -> parsePosting(posting, urls.getOrNull(index), category) }
                 .filter { publicationWindow.accepts(windowTimestamp(it.publishedAt), context.since) }
         val hasNext = document.selectFirst("a[rel=next], a[aria-label=next]") != null
-        if (hasNext && position.page >= properties.maxPages) {
-            throw SourceSchemaException("Djinni pagination exceeds ${properties.maxPages} pages")
-        }
         return page(context, position, jobs, hasNext, postings.size)
     }
 
@@ -139,9 +136,10 @@ class DjinniAdapter(
     private fun position(context: ScrapeContext): Position {
         val categoryIndex = context.checkpoint[CHECKPOINT_CATEGORY]?.toIntOrNull() ?: 0
         val page = context.checkpoint[CHECKPOINT_PAGE]?.toIntOrNull() ?: 1
-        if (categoryIndex !in context.criteria.categories.indices || page !in 1..properties.maxPages) {
+        if (categoryIndex !in context.criteria.categories.indices) {
             throw SourceSchemaException("Invalid Djinni checkpoint")
         }
+        requirePageWithinCap(page, properties.maxPages, source.id)
         return Position(categoryIndex, page)
     }
 
