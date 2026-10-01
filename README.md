@@ -45,7 +45,7 @@ Secrets Operator. See [operations](docs/operations.md) for recovery and rollout.
 | --- | --- |
 | `djinni` | HTML listings |
 | `dou` | RSS feeds |
-| `euremotejobs` | WordPress JSON API |
+| `euremotejobs` | Public AJAX search and JobPosting JSON-LD |
 | `justjoinit` | Candidate JSON API |
 | `landingjobs` | JSON API |
 | `linkedin` | JobSpy search and enrichment |
@@ -64,7 +64,7 @@ Sources apply the API-provided publication window before detail enrichment:
 | `justjoinit` | ISO `publishedAt` | Requests `sortBy=publishedAt&orderBy=descending`, stops after a wholly old page, and fetches details only for accepted jobs. |
 | `nofluffjobs` | `posted` epoch milliseconds | Search results use relevance ordering, so all reported listing pages are checked; old listings never trigger detail requests. |
 | `landingjobs` | ISO `published_at` | The active catalogue is unordered and filtered locally; pagination continues until a short page. |
-| `euremotejobs` | WordPress UTC `date_gmt` | Sends `after`, `orderby=date`, and `order=desc`; normalizes UTC to an instant and filters the response defensively. |
+| `euremotejobs` | JSON-LD `datePosted` with UTC offset | Uses the public exact technology filter and `has_more` pagination; skips calendar days with a one-day timezone margin before details and applies the precise window after enrichment. |
 | `linkedin` | JobSpy date or timestamp | Requests a rolling `hours_old=1` window and filters precise candidates before enrichment. |
 | `dou` | RFC 1123 timestamp | Normalizes publication time to an instant and filters each listing before enrichment. |
 | `web3career` | ISO offset timestamp | Normalizes offsets and stops after a latest-first page contains only precise timestamps older than the window. |
