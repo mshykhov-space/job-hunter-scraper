@@ -100,6 +100,24 @@ class RestSourceHttpClientIntegrationTest {
         assertTrue(observedValues.any { it.endsWith("/slow") })
     }
 
+    @Test
+    fun `preserves explicit form content type and defaults other posts to JSON`() {
+        val contentTypes = mutableListOf<String>()
+        val bodies = mutableListOf<String>()
+        server.createContext("/post") { exchange ->
+            contentTypes += exchange.requestHeaders.getFirst("Content-Type")
+            bodies += exchange.requestBody.readBytes().decodeToString()
+            exchange.respond(200, "ok")
+        }
+        val client = client(ScraperProperties(httpAttempts = 1))
+
+        client.post("$baseUrl/post", "technology=Java&nonce=fixture", mapOf("Content-Type" to "application/x-www-form-urlencoded"))
+        client.post("$baseUrl/post", mapOf("category" to "Java"))
+
+        assertEquals(listOf("application/x-www-form-urlencoded", "application/json"), contentTypes)
+        assertEquals(listOf("technology=Java&nonce=fixture", "{\"category\":\"Java\"}"), bodies)
+    }
+
     private fun client(
         properties: ScraperProperties,
         registry: ObservationRegistry = ObservationRegistry.NOOP,

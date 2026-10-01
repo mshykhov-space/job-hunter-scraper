@@ -90,7 +90,11 @@ class RestSourceHttpClient(
                 .build()
         var request = client.method(method).uri(URI.create(target)).headers { it.setAll(headers) }
         if (body != null) {
-            request = request.contentType(MediaType.APPLICATION_JSON).body(body)
+            request =
+                request
+                    .headers {
+                        if (it.contentType == null) it.contentType = MediaType.APPLICATION_JSON
+                    }.body(body)
         }
         return request.exchange { _, response ->
             if (!response.statusCode.is2xxSuccessful) {

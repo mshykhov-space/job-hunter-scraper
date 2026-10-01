@@ -25,6 +25,28 @@ last success/error, and persistent counters. It requires `read:jobs`. Enable
 sources through API deployment configuration `SCRAPING_ENABLED_SOURCES` and limit
 workers with `SCRAPER_SOURCES`; both gates must permit a source.
 
+## EUremotejobs source contract
+
+The WordPress REST taxonomy and listing routes no longer allow anonymous access.
+The adapter uses the public website search: it reads the available technology
+values and public form nonce from the homepage, then posts URL-encoded form data
+to `wp-admin/admin-ajax.php` with `action=erj_ajax_search`. Technology matching is
+exact and case-insensitive; Java does not match Javascript. The nonce is fetched
+for each page and never stored in checkpoints, jobs, or telemetry.
+
+The public result supplies HTML cards and a boolean `has_more`. Traverse all
+reported pages because featured records can change ordering. A repeated page,
+malformed response, failed detail, or coverage cap fails the run. A missing exact
+technology or an explicitly exhausted empty result is a legitimate empty category.
+The existing `categoryIndex` and `page` checkpoint keys remain compatible; a page
+fingerprint detects a repeated result without retaining public form state.
+
+Cards expose only a local calendar date. Apply a one-day timezone margin before
+skipping older cards; accepted candidates are checked against the precise JSON-LD
+`datePosted` after details. Unknown dates remain eligible. Detail URLs must belong
+to the configured source origin and `/job/` path. Missing remote evidence stays
+unknown. The default endpoint is the homepage origin, not `/wp-json/wp/v2`.
+
 ## Observability
 
 The scraper exposes Actuator health probes and Prometheus metrics. Persistent

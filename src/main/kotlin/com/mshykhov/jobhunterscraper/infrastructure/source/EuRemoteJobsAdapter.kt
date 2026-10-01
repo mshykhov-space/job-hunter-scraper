@@ -11,9 +11,17 @@ import com.mshykhov.jobhunterscraper.application.model.ScrapePage
 import com.mshykhov.jobhunterscraper.application.model.ScrapedJob
 import com.mshykhov.jobhunterscraper.infrastructure.config.ScraperProperties
 import com.mshykhov.jobhunterscraper.infrastructure.http.SourceHttpClient
+import org.jsoup.Jsoup
+import org.jsoup.nodes.Element
 import org.springframework.stereotype.Component
+import java.net.URI
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
+import java.time.Instant
+import java.time.LocalDate
+import java.time.OffsetDateTime
+import java.time.ZoneOffset
 
 @Component
 class EuRemoteJobsAdapter(
@@ -34,136 +42,162 @@ class EuRemoteJobsAdapter(
             return ScrapePage(emptyList(), context.checkpoint, complete = true, fetchedCount = 0)
         }
         requirePageWithinCap(page, properties.maxPages, source.id)
-
         val category = context.criteria.categories[categoryIndex].trim()
-        if (category.isEmpty()) return advanceEmptyCategory(categoryIndex, context.criteria.categories.size)
-        val tagId =
-            resolveTagId(category)
-                ?: return advanceEmptyCategory(categoryIndex, context.criteria.categories.size)
+        if (category.isEmpty()) return advanceCategory(categoryIndex, context.criteria.categories.size)
 
-        val root = objectMapper.readSourceTree(httpClient.get(listingsUrl(tagId, page, context)), source.id)
-        if (!root.isObject) throw SourceSchemaException("euremotejobs listings response must be an object")
-        val status = root.requiredInt("status", source.id)
-        if (status !in 200..299) throw SourceSchemaException("euremotejobs listings returned status $status")
-        val headers = root.requiredObject("headers", source.id)
-        val totalPages = headers.requiredInt("X-WP-TotalPages", source.id)
-        if (totalPages < 0) throw SourceSchemaException("euremotejobs response has invalid total pages")
-        if (totalPages > properties.maxPages) {
+        val endpoint = properties.endpoint(source, DEFAULT_ENDPOINT).trimEnd('/')
+        val search = Jsoup.parse(httpClient.get("$endpoint/", HEADERS))
+        val technologies = search.select("input.erj-filter[data-param=search_technology]")
+        if (technologies.isEmpty()) throw SourceSchemaException("euremotejobs search has no technology filters")
+        val technology =
+            technologies.map { it.attr("value") }.firstOrNull { it.equals(category, ignoreCase = true) }
+                ?: return advanceCategory(categoryIndex, context.criteria.categories.size)
+        val nonce =
+            search.select("script").mapNotNull { PUBLIC_NONCE.find(it.data())?.groupValues?.get(1) }.singleOrNull()
+                ?: throw SourceSchemaException("euremotejobs search has no public form nonce")
+        val form =
+            mapOf(
+                "action" to "erj_ajax_search",
+                "nonce" to nonce,
+                "page" to page.toString(),
+                "website" to "",
+                "search_technology[]" to technology,
+            ).entries.joinToString("&") { (key, value) -> "${encode(key)}=${encode(value)}" }
+        val root =
+            objectMapper.readSourceTree(
+                httpClient.post("$endpoint/wp-admin/admin-ajax.php", form, HEADERS + FORM_HEADER),
+                source.id,
+            )
+        if (root.get("success")?.takeIf(JsonNode::isBoolean)?.booleanValue() != true) {
+            throw SourceSchemaException("euremotejobs public search failed")
+        }
+        val data = root.requiredObject("data", source.id)
+        val html =
+            data.get("html")?.takeIf(JsonNode::isTextual)?.textValue()
+                ?: throw SourceSchemaException("euremotejobs search response has no HTML")
+        val hasMore =
+            data.get("has_more")?.takeIf(JsonNode::isBoolean)?.booleanValue()
+                ?: throw SourceSchemaException("euremotejobs search response has invalid pagination")
+        val cards = Jsoup.parse(html).select("a.job-card-link")
+        if (cards.size > PAGE_SIZE || cards.isEmpty() && (hasMore || html.isNotBlank() && !ZERO_RESULTS.containsMatchIn(html))) {
+            throw SourceSchemaException("euremotejobs search response has invalid cards")
+        }
+        if (hasMore && page >= properties.maxPages) {
             throw SourceSchemaException("euremotejobs pagination exceeds configured maxPages=${properties.maxPages}")
         }
-        val body = root.requiredArray("body", source.id)
-        if (body.size() > PAGE_SIZE) throw SourceSchemaException("euremotejobs page exceeds $PAGE_SIZE items")
-        if (page > totalPages && body.size() > 0) {
-            throw SourceSchemaException("euremotejobs response page exceeds reported total pages")
+        val listings = cards.map { it to detailUrl(it.attr("href"), endpoint) }
+        val fingerprint =
+            MessageDigest
+                .getInstance("SHA-256")
+                .digest(listings.joinToString("\n") { (_, url) -> url }.toByteArray(StandardCharsets.UTF_8))
+                .joinToString("") { "%02x".format(it) }
+        if (cards.isNotEmpty() && fingerprint == context.checkpoint[PAGE_FINGERPRINT]) {
+            throw SourceSchemaException("euremotejobs public search repeated a page")
         }
-
-        val jobs = body.mapNotNull { mapListing(it, category, tagId, context) }
-        val categoryComplete = page >= totalPages
-        val nextCategoryIndex = if (categoryComplete) categoryIndex + 1 else categoryIndex
-        val complete = nextCategoryIndex >= context.criteria.categories.size
+        val jobs =
+            listings
+                .distinctBy { (_, url) -> url }
+                .filter { (card) -> acceptsCardDate(card, context.since) }
+                .map { (card, url) -> mapListing(card, url, category) }
+                .filter { publicationWindow.accepts(it.publishedAt, context.since) }
+        if (!hasMore) return advanceCategory(categoryIndex, context.criteria.categories.size, jobs, cards.size)
         return ScrapePage(
             jobs = jobs,
-            checkpoint =
-                mapOf(
-                    CATEGORY_INDEX to nextCategoryIndex.toString(),
-                    PAGE to if (categoryComplete) "1" else (page + 1).toString(),
-                ),
-            complete = complete,
-            fetchedCount = body.size(),
+            checkpoint = mapOf(CATEGORY_INDEX to categoryIndex.toString(), PAGE to (page + 1).toString(), PAGE_FINGERPRINT to fingerprint),
+            complete = false,
+            fetchedCount = cards.size,
         )
     }
 
-    private fun resolveTagId(category: String): Int? {
-        val root = objectMapper.readSourceTree(httpClient.get(tagsUrl(category)), source.id)
-        if (!root.isArray) throw SourceSchemaException("euremotejobs tag response must be an array")
-        return root
-            .map { tag ->
-                if (!tag.isObject) throw SourceSchemaException("euremotejobs tag must be an object")
-                tag.requiredInt("id", source.id) to tag.requiredText("name", source.id)
-            }.firstOrNull { (_, name) -> name.trim().equals(category, ignoreCase = true) }
-            ?.first
+    private fun acceptsCardDate(
+        card: Element,
+        since: Instant?,
+    ): Boolean {
+        if (since == null) return true
+        val date = runCatching { LocalDate.parse(card.selectFirst("time")?.attr("datetime")) }.getOrNull() ?: return true
+        return !date.plusDays(1).isBefore(since.atOffset(ZoneOffset.UTC).toLocalDate())
     }
 
     private fun mapListing(
-        listing: JsonNode,
+        card: Element,
+        url: String,
         category: String,
-        tagId: Int,
-        context: ScrapeContext,
-    ): ScrapedJob? {
-        if (!listing.isObject) throw SourceSchemaException("euremotejobs listing must be an object")
-        val publishedAt =
-            listing.optionalText("date_gmt", source.id)?.let { "${it}Z" }
-                ?: listing.optionalText("date", source.id)
-        if (!publicationWindow.accepts(publishedAt, context.since)) return null
-        val title = listing.requiredObject("title", source.id).requiredText("rendered", source.id)
-        val content = listing.requiredObject("content", source.id).requiredText("rendered", source.id)
-        val meta = listing.requiredObject("meta", source.id)
-        val terms = listing.requiredObject("_embedded", source.id).requiredArray("wp:term", source.id)
-        val flattenedTerms =
-            terms.flatMap { group ->
-                if (!group.isArray) throw SourceSchemaException("euremotejobs term group must be an array")
-                group.map { term ->
-                    if (!term.isObject) throw SourceSchemaException("euremotejobs term must be an object")
-                    term
-                }
-            }
-        val regions =
-            flattenedTerms
-                .filter { it.requiredText("taxonomy", source.id) == "job_listing_region" }
-                .map { it.requiredText("name", source.id) }
-
+    ): ScrapedJob {
+        val document = Jsoup.parse(httpClient.get(url, HEADERS))
+        val posting =
+            document
+                .select("script[type=application/ld+json]")
+                .flatMap { jobPostings(objectMapper.readSourceTree(it.data(), source.id)) }
+                .singleOrNull() ?: throw SourceSchemaException("euremotejobs detail has no unique JobPosting")
+        val publishedAt = posting.optionalText("datePosted", source.id)
         return ScrapedJob(
-            title = htmlToText(title),
-            company = meta.optionalText("_company_name", source.id),
-            url = listing.requiredText("link", source.id),
-            description = content,
+            title = posting.requiredText("title", source.id),
+            company = posting.path("hiringOrganization").optionalText("name", source.id),
+            url = url,
+            description = posting.requiredText("description", source.id),
             source = source,
-            location = regions.joinToString(", ").takeIf(String::isNotBlank),
-            remote = true,
-            publishedAt = publishedAt,
-            rawData =
-                mapOf(
-                    "id" to listing.get("id")?.takeIf(JsonNode::isIntegralNumber)?.longValue(),
-                    "tagId" to tagId,
-                ),
+            salary = card.selectFirst(".meta-salary")?.text()?.takeIf(String::isNotBlank),
+            location = card.selectFirst(".meta-location")?.text()?.takeIf(String::isNotBlank),
+            remote = posting.optionalText("jobLocationType", source.id)?.equals("TELECOMMUTE", ignoreCase = true),
+            publishedAt = publishedAt?.let { runCatching { OffsetDateTime.parse(it).toInstant().toString() }.getOrDefault(it) },
+            rawData = mapOf("datePosted" to publishedAt, "technology" to category),
             category = category.lowercase(),
         )
     }
 
-    private fun advanceEmptyCategory(
+    private fun jobPostings(node: JsonNode): List<JsonNode> =
+        when {
+            node.isArray -> node.flatMap(::jobPostings)
+            node.path("@type").asText() == "JobPosting" -> listOf(node)
+            node.path("@graph").isArray -> node.path("@graph").flatMap(::jobPostings)
+            else -> emptyList()
+        }
+
+    private fun detailUrl(
+        value: String,
+        endpoint: String,
+    ): String {
+        val base = URI(endpoint)
+        val uri = runCatching { base.resolve(value).normalize() }.getOrNull()
+        if (
+            uri == null ||
+            uri.scheme != base.scheme ||
+            uri.host != base.host ||
+            uri.port != base.port ||
+            uri.userInfo != null ||
+            !uri.path.startsWith("/job/")
+        ) {
+            throw SourceSchemaException("euremotejobs card has an invalid source URL")
+        }
+        return uri.toString()
+    }
+
+    private fun advanceCategory(
         categoryIndex: Int,
         categoryCount: Int,
+        jobs: List<ScrapedJob> = emptyList(),
+        fetchedCount: Int = 0,
     ): ScrapePage {
         val next = categoryIndex + 1
         return ScrapePage(
-            jobs = emptyList(),
+            jobs = jobs,
             checkpoint = mapOf(CATEGORY_INDEX to next.toString(), PAGE to "1"),
             complete = next >= categoryCount,
-            fetchedCount = 0,
+            fetchedCount = fetchedCount,
         )
     }
-
-    private fun tagsUrl(category: String): String = "${baseUrl()}/job_listing_tag?search=${encode(category)}&per_page=$TAG_SEARCH_SIZE"
-
-    private fun listingsUrl(
-        tagId: Int,
-        page: Int,
-        context: ScrapeContext,
-    ): String {
-        val after = context.since?.let { "&after=${encode(it.toString())}" }.orEmpty()
-        return "${baseUrl()}/job-listings?per_page=$PAGE_SIZE&page=$page&_embed=1&_envelope=1" +
-            "&job_listing_tag=$tagId&orderby=date&order=desc$after"
-    }
-
-    private fun baseUrl(): String = properties.endpoint(source, DEFAULT_ENDPOINT).trimEnd('/')
 
     private fun encode(value: String): String = URLEncoder.encode(value, StandardCharsets.UTF_8)
 
     private companion object {
-        const val DEFAULT_ENDPOINT = "https://euremotejobs.com/wp-json/wp/v2"
+        const val DEFAULT_ENDPOINT = "https://euremotejobs.com"
         const val CATEGORY_INDEX = "categoryIndex"
         const val PAGE = "page"
+        const val PAGE_FINGERPRINT = "pageFingerprint"
         const val PAGE_SIZE = 100
-        const val TAG_SEARCH_SIZE = 100
+        val HEADERS = mapOf("User-Agent" to "JobHunter/1.0 (+https://github.com/mshykhov-space/job-hunter)")
+        val FORM_HEADER = mapOf("Content-Type" to "application/x-www-form-urlencoded")
+        val PUBLIC_NONCE = Regex("""\bvar\s+ERJ\s*=\s*\{.*?\bnonce\s*:\s*['"]([^'"]+)['"]""", RegexOption.DOT_MATCHES_ALL)
+        val ZERO_RESULTS = Regex("No job listings found", RegexOption.IGNORE_CASE)
     }
 }
