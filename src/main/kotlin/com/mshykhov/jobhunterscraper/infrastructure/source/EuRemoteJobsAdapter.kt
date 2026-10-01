@@ -6,9 +6,11 @@ import com.mshykhov.jobhunterscraper.application.PublicationWindow
 import com.mshykhov.jobhunterscraper.application.SourceAdapter
 import com.mshykhov.jobhunterscraper.application.SourceSchemaException
 import com.mshykhov.jobhunterscraper.application.model.JobSource
+import com.mshykhov.jobhunterscraper.application.model.ProxyEndpoint
 import com.mshykhov.jobhunterscraper.application.model.ScrapeContext
 import com.mshykhov.jobhunterscraper.application.model.ScrapePage
 import com.mshykhov.jobhunterscraper.application.model.ScrapedJob
+import com.mshykhov.jobhunterscraper.infrastructure.api.JobHunterClient
 import com.mshykhov.jobhunterscraper.infrastructure.config.ScraperProperties
 import com.mshykhov.jobhunterscraper.infrastructure.http.SourceHttpClient
 import org.jsoup.Jsoup
@@ -27,6 +29,7 @@ import java.time.ZoneOffset
 class EuRemoteJobsAdapter(
     private val httpClient: SourceHttpClient,
     private val objectMapper: ObjectMapper,
+    private val jobHunterClient: JobHunterClient,
     private val properties: ScraperProperties,
     private val publicationWindow: PublicationWindow,
 ) : SourceAdapter {
@@ -46,7 +49,12 @@ class EuRemoteJobsAdapter(
         if (category.isEmpty()) return advanceCategory(categoryIndex, context.criteria.categories.size)
 
         val endpoint = properties.endpoint(source, DEFAULT_ENDPOINT).trimEnd('/')
-        val search = Jsoup.parse(httpClient.get("$endpoint/", HEADERS))
+        val sourceProxy =
+            jobHunterClient.proxies(source).firstOrNull()
+                ?: throw SourceSchemaException("euremotejobs proxy pool is empty")
+        val proxy = sourceProxy.endpoint()
+        val headers = HEADERS + sourceProxy.fingerprint
+        val search = Jsoup.parse(httpClient.get("$endpoint/", headers, proxy))
         val technologies = search.select("input.erj-filter[data-param=search_technology]")
         if (technologies.isEmpty()) throw SourceSchemaException("euremotejobs search has no technology filters")
         val technology =
@@ -65,7 +73,7 @@ class EuRemoteJobsAdapter(
             ).entries.joinToString("&") { (key, value) -> "${encode(key)}=${encode(value)}" }
         val root =
             objectMapper.readSourceTree(
-                httpClient.post("$endpoint/wp-admin/admin-ajax.php", form, HEADERS + FORM_HEADER),
+                httpClient.post("$endpoint/wp-admin/admin-ajax.php", form, headers + FORM_HEADER, proxy),
                 source.id,
             )
         if (root.get("success")?.takeIf(JsonNode::isBoolean)?.booleanValue() != true) {
@@ -98,7 +106,7 @@ class EuRemoteJobsAdapter(
             listings
                 .distinctBy { (_, url) -> url }
                 .filter { (card) -> acceptsCardDate(card, context.since) }
-                .map { (card, url) -> mapListing(card, url, category) }
+                .map { (card, url) -> mapListing(card, url, category, headers, proxy) }
                 .filter { publicationWindow.accepts(it.publishedAt, context.since) }
         if (!hasMore) return advanceCategory(categoryIndex, context.criteria.categories.size, jobs, cards.size)
         return ScrapePage(
@@ -122,8 +130,10 @@ class EuRemoteJobsAdapter(
         card: Element,
         url: String,
         category: String,
+        headers: Map<String, String>,
+        proxy: ProxyEndpoint,
     ): ScrapedJob {
-        val document = Jsoup.parse(httpClient.get(url, HEADERS))
+        val document = Jsoup.parse(httpClient.get(url, headers, proxy))
         val posting =
             document
                 .select("script[type=application/ld+json]")

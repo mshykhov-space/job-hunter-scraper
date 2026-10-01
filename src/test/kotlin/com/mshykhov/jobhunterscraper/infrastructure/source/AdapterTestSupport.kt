@@ -9,6 +9,7 @@ internal class RecordingSourceHttpClient(
 ) : SourceHttpClient {
     val getUrls = mutableListOf<String>()
     val postUrls = mutableListOf<String>()
+    val requestProxies = mutableListOf<ProxyEndpoint?>()
 
     override fun get(
         url: String,
@@ -16,6 +17,7 @@ internal class RecordingSourceHttpClient(
         proxy: ProxyEndpoint?,
     ): String {
         getUrls += url
+        requestProxies += proxy
         return getResponse(url)
     }
 
@@ -26,6 +28,7 @@ internal class RecordingSourceHttpClient(
         proxy: ProxyEndpoint?,
     ): String {
         postUrls += url
+        requestProxies += proxy
         return postResponse(url, body)
     }
 }
