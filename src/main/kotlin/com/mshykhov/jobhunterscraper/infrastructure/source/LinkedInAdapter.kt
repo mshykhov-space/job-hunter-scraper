@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.mshykhov.jobhunterscraper.application.PublicationWindow
+import com.mshykhov.jobhunterscraper.application.ScrapeRunException
 import com.mshykhov.jobhunterscraper.application.SourceAdapter
 import com.mshykhov.jobhunterscraper.application.SourceSchemaException
 import com.mshykhov.jobhunterscraper.application.model.JobCheckRequest
@@ -239,10 +240,11 @@ class LinkedInAdapter(
                     "delay_max" to 15,
                 ),
             )
+        val resolved = mergeEnrichment(chunk, response)
         return Enrichment(
-            jobs = mergeEnrichment(chunk, response),
-            hasRemaining = selected.size > chunk.size,
-            processedHashes = unchangedHashes + chunk.map { hash(it.url) },
+            jobs = resolved,
+            hasRemaining = selected.size > resolved.size,
+            processedHashes = unchangedHashes + resolved.map { hash(it.url) },
         )
     }
 
@@ -261,19 +263,14 @@ class LinkedInAdapter(
         val byUrl = results.associateBy { it.path("url").asText() }
         val missing = selected.map(ScrapedJob::url).filterNot(byUrl::containsKey)
         if (missing.isNotEmpty()) throw SourceSchemaException("LinkedIn enrichment response omitted requested jobs")
-        val retryable =
-            selected.mapNotNull { job ->
-                byUrl
-                    .getValue(job.url)
-                    .path("status")
-                    .asText()
-                    .takeIf { it !in TERMINAL_ENRICHMENT_STATUSES }
-            }
-        if (retryable.isNotEmpty()) {
-            throw SourceSchemaException("LinkedIn enrichment contains retryable failures")
+        val statuses = selected.associateWith { byUrl.getValue(it.url).path("status").asText() }
+        if (statuses.values.any { it !in TERMINAL_ENRICHMENT_STATUSES && it !in RETRYABLE_ENRICHMENT_STATUSES }) {
+            throw SourceSchemaException("LinkedIn enrichment contains an unknown status")
         }
+        val resolved = selected.filter { statuses.getValue(it) in TERMINAL_ENRICHMENT_STATUSES }
+        if (resolved.isEmpty()) throw ScrapeRunException("LinkedIn enrichment contains only retryable failures")
 
-        return selected.map { job ->
+        return resolved.map { job ->
             val result = byUrl.getValue(job.url)
             val status = result.path("status").asText().ifBlank { "unknown" }
             val data = result.path("data")
@@ -426,6 +423,7 @@ class LinkedInAdapter(
         val PROCESSED_HASH = Regex("[0-9a-f]{32}")
         val PROCESSED_CHUNK = Regex("${CHECKPOINT_PROCESSED}[0-1]")
         val TERMINAL_ENRICHMENT_STATUSES = setOf("success", "no_data", "not_found")
+        val RETRYABLE_ENRICHMENT_STATUSES = setOf("skipped", "timeout", "error")
         val MAP_TYPE = object : TypeReference<Map<String, Any?>>() {}
     }
 }

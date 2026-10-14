@@ -2,6 +2,7 @@ package com.mshykhov.jobhunterscraper.infrastructure.source
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.mshykhov.jobhunterscraper.application.PublicationWindow
+import com.mshykhov.jobhunterscraper.application.ScrapeRunException
 import com.mshykhov.jobhunterscraper.application.SourceSchemaException
 import com.mshykhov.jobhunterscraper.application.model.JobCheckRequest
 import com.mshykhov.jobhunterscraper.application.model.JobCheckResult
@@ -18,6 +19,7 @@ import io.mockk.slot
 import io.mockk.verify
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
+import org.junit.jupiter.params.provider.ValueSource
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
@@ -407,8 +409,9 @@ class LinkedInAdapterTest {
         verify(exactly = 0) { httpClient.post(any(), any(), any(), any()) }
     }
 
-    @Test
-    fun `fails the unit when enrichment returns a retryable status`() {
+    @ParameterizedTest
+    @ValueSource(strings = ["skipped", "timeout", "error"])
+    fun `fails the unit when enrichment returns a retryable status`(status: String) {
         every { httpClient.post(match { it.endsWith("/jobs/search") }, any(), any(), any()) } returns
             fixture("fixtures/linkedin/search.json")
         every { httpClient.post(match { it.endsWith("/jobs/enrich") }, any(), any(), any()) } returns
@@ -417,7 +420,7 @@ class LinkedInAdapterTest {
               "results": [
                 {
                   "url": "https://www.linkedin.com/jobs/view/101",
-                  "status": "skipped",
+                  "status": "$status",
                   "error": "All proxies exhausted"
                 }
               ]
@@ -433,9 +436,84 @@ class LinkedInAdapterTest {
             listOf(SourceProxy("http://user:secret@proxy.test:8080", "proxy.test", 8080, "user", "secret"))
         val adapter = LinkedInAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(), publicationWindow)
 
-        assertFailsWith<SourceSchemaException> {
+        assertFailsWith<ScrapeRunException> {
             adapter.fetch(ScrapeContext(SearchCriteria(listOf("Kotlin"))))
         }
+    }
+
+    @ParameterizedTest
+    @CsvSource("false,skipped", "true,skipped", "false,timeout", "true,error")
+    fun `checkpoints successful details and retries only unresolved jobs in a mixed batch`(
+        restart: Boolean,
+        retryableStatus: String,
+    ) {
+        every { httpClient.post(match { it.endsWith("/jobs/search") }, any(), any(), any()) } returns
+            fixture("fixtures/linkedin/search.json")
+        every { httpClient.post(match { it.endsWith("/jobs/enrich") }, any(), any(), any()) } returnsMany
+            listOf(
+                """
+                {"results":[
+                  {"url":"https://www.linkedin.com/jobs/view/101","status":"success","data":{"description":"Collected"}},
+                  {"url":"https://www.linkedin.com/jobs/view/102","status":"$retryableStatus","error":"Temporary failure"}
+                ]}
+                """.trimIndent(),
+                enrichmentResponse("102"),
+            )
+        every { jobHunterClient.checkJobs(any()) } answers {
+            JobCheckResult(
+                newUrls = arg<List<JobCheckRequest>>(0).map { it.url },
+                updatedUrls = emptyList(),
+                unchangedUrls = emptyList(),
+            )
+        }
+        every { jobHunterClient.proxies(JobSource.LINKEDIN) } returns
+            listOf(
+                SourceProxy("http://user:secret@one.test:8080", "one.test", 8080, "user", "secret"),
+                SourceProxy("http://user:secret@two.test:8080", "two.test", 8080, "user", "secret"),
+            )
+        val adapter = LinkedInAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(), publicationWindow)
+        val context = ScrapeContext(SearchCriteria(listOf("Kotlin")))
+
+        val first = adapter.fetch(context)
+        assertEquals(listOf("https://www.linkedin.com/jobs/view/101"), first.jobs.map { it.url })
+        assertFalse(first.complete)
+        assertEquals("0", first.checkpoint["offset"])
+
+        val nextAdapter =
+            if (restart) {
+                LinkedInAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(), publicationWindow)
+            } else {
+                adapter
+            }
+        val second = nextAdapter.fetch(context.copy(checkpoint = first.checkpoint))
+        assertEquals(listOf("https://www.linkedin.com/jobs/view/102"), second.jobs.map { it.url })
+        assertTrue(second.complete)
+        verify(exactly = if (restart) 2 else 1) { httpClient.post(match { it.endsWith("/jobs/search") }, any(), any(), any()) }
+        verify(exactly = 1) {
+            jobHunterClient.checkJobs(match { it.map { job -> job.url } == listOf("https://www.linkedin.com/jobs/view/102") })
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["pending", "", "rate_limited"])
+    fun `rejects an unknown enrichment status as malformed data`(status: String) {
+        every { httpClient.post(match { it.endsWith("/jobs/search") }, any(), any(), any()) } returns
+            fixture("fixtures/linkedin/search.json")
+        every { httpClient.post(match { it.endsWith("/jobs/enrich") }, any(), any(), any()) } returns
+            """
+            {"results":[{"url":"https://www.linkedin.com/jobs/view/101","status":"$status"}]}
+            """.trimIndent()
+        every { jobHunterClient.checkJobs(any()) } returns
+            JobCheckResult(
+                newUrls = listOf("https://www.linkedin.com/jobs/view/101"),
+                updatedUrls = emptyList(),
+                unchangedUrls = listOf("https://www.linkedin.com/jobs/view/102"),
+            )
+        every { jobHunterClient.proxies(JobSource.LINKEDIN) } returns
+            listOf(SourceProxy("http://user:secret@proxy.test:8080", "proxy.test", 8080, "user", "secret"))
+        val adapter = LinkedInAdapter(httpClient, ObjectMapper(), jobHunterClient, ScraperProperties(), publicationWindow)
+
+        assertFailsWith<SourceSchemaException> { adapter.fetch(ScrapeContext(SearchCriteria(listOf("Kotlin")))) }
     }
 
     @Test

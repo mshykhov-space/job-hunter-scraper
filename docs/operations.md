@@ -22,6 +22,12 @@ the total run budget is exhausted. Checkpoints retain the boundary, so retries
 do not discard or refetch the acknowledged portion. A capped run still fails
 explicitly rather than claiming full coverage.
 
+LinkedIn acknowledges successful detail results from a mixed enrichment batch and
+keeps skipped, timed-out, or errored jobs unresolved at the same search position.
+Only terminal detail results enter its processed-URL checkpoint. A batch with no
+resolved jobs fails as incomplete coverage and uses the API's retry backoff;
+malformed responses and unknown detail statuses remain schema failures.
+
 The API schedules successful sources 15 minutes after completion. Failed runs retry with
 bounded backoff before a fresh scheduled run. The scraper polls for claims every
 15 seconds and runs sources independently. A failure in one source does not stop
