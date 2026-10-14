@@ -147,6 +147,21 @@ class RestJobHunterClientIntegrationTest {
     }
 
     @Test
+    fun `probe obtains one source proxy without requesting the full pool`() {
+        val paths = mutableListOf<String>()
+        server.createContext("/proxies") { exchange ->
+            paths += exchange.requestURI.toString()
+            exchange.respond(200, """{"url":"http://user:secret@proxy.test:8080","host":"proxy.test","port":8080}""")
+        }
+        val client = client(JobHunterProperties(apiUrl = baseUrl, authEnabled = false, attempts = 1))
+
+        val proxy = client.probeProxy(JobSource.LINKEDIN)
+
+        assertEquals("proxy.test", proxy.host)
+        assertEquals(listOf("/proxies?source=linkedin"), paths)
+    }
+
+    @Test
     fun `maps only lease error code to lease loss`() {
         val requests = AtomicInteger()
         server.createContext("/scraping/runs") { exchange ->

@@ -38,6 +38,24 @@ last success/error, and persistent counters. It requires `read:jobs`. Enable
 sources through API deployment configuration `SCRAPING_ENABLED_SOURCES` and limit
 workers with `SCRAPER_SOURCES`; both gates must permit a source.
 
+For a fast read-only LinkedIn search check, use the [one-shot probe](../README.md#one-shot-linkedin-search-probe).
+It accepts a literal category and location (including `Worldwide`), a remote-only
+boolean, 1-10 results, and a 1-168 hour window. Defaults are `true`, 5, and 24.
+The probe runs with no HTTP server or coordinator, one API request attempt, one
+JobSpy search attempt, a 10-second API timeout, and a 60-second LinkedIn transport
+timeout. Its JSON contains only the request, outcome, count, bounded public job
+fields, and an optional HTTP status for an upstream HTTP error; failed probes
+return nonzero. A `RATE_LIMITED` result means the search was throttled, not that the location is
+invalid. `EMPTY` only means this one sampled query returned no jobs. Neither
+result establishes geographic hiring eligibility. Check each posting's explicit
+residence and work-authorization requirements before acting on a result.
+An individual sample's `remote: null` means the search card lacks enough remote
+evidence. Even a remote-only sample does not prove workplace or hiring eligibility
+for an applicant in a particular country.
+Compare the same category and time window against a known country and, when
+checking remote filtering, against `--probe.remote-only=false`. Returned samples
+confirm request execution; they do not certify that LinkedIn honored every filter.
+
 ## EUremotejobs source contract
 
 The WordPress REST taxonomy and listing routes no longer allow anonymous access.

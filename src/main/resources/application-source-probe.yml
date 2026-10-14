@@ -1,0 +1,14 @@
+spring:
+  main:
+    web-application-type: none
+scraper:
+  http-attempts: 1
+  source-timeouts:
+    linkedin: 60s
+job-hunter:
+  attempts: 1
+  timeout: 10s
+logging:
+  level:
+    root: OFF
+    com.mshykhov.jobhunterscraper: OFF

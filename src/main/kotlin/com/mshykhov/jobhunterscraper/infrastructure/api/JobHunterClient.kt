@@ -30,5 +30,7 @@ interface JobHunterClient {
 
     fun proxies(source: JobSource): List<SourceProxy>
 
+    fun probeProxy(source: JobSource): SourceProxy
+
     fun checkJobs(jobs: List<JobCheckRequest>): JobCheckResult
 }

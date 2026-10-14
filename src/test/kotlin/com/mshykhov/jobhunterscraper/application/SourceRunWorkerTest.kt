@@ -353,6 +353,8 @@ class SourceRunWorkerTest {
 
         override fun proxies(source: JobSource): List<SourceProxy> = emptyList()
 
+        override fun probeProxy(source: JobSource): SourceProxy = error("Not used by worker")
+
         override fun checkJobs(jobs: List<JobCheckRequest>) = JobCheckResult(emptyList(), emptyList(), emptyList())
     }
 

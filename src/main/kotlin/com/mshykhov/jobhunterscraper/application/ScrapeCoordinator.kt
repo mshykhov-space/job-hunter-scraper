@@ -4,6 +4,7 @@ import com.mshykhov.jobhunterscraper.application.model.JobSource
 import com.mshykhov.jobhunterscraper.infrastructure.config.ScraperProperties
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
+import org.springframework.context.annotation.Profile
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
 import java.util.concurrent.ConcurrentHashMap
@@ -11,6 +12,7 @@ import java.util.concurrent.Executor
 import java.util.concurrent.RejectedExecutionException
 
 @Component
+@Profile("!source-probe")
 @ConditionalOnProperty(prefix = "scraper", name = ["enabled"], havingValue = "true")
 class ScrapeCoordinator(
     private val properties: ScraperProperties,

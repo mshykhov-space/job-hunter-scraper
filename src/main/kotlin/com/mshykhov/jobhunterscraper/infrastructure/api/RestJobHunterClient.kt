@@ -80,6 +80,11 @@ class RestJobHunterClient(
         return if (source == JobSource.LINKEDIN) parse(response.body, "proxy") else listOf(parse(response.body, "proxy"))
     }
 
+    override fun probeProxy(source: JobSource): SourceProxy {
+        val response = request(HttpMethod.GET, "/proxies?source=${source.id}", null, "proxy")
+        return parse(response.body, "proxy")
+    }
+
     override fun checkJobs(jobs: List<JobCheckRequest>): JobCheckResult {
         val response = request(HttpMethod.POST, "/jobs/check", jobs, "check_jobs")
         return parse(response.body, "check_jobs")

@@ -39,6 +39,32 @@ Keep credentials in the environment or a secret store. The machine identity need
 `read:criteria`, `write:jobs`, and `read:proxies`. Production secrets come from Doppler through External
 Secrets Operator. See [operations](docs/operations.md) for recovery and rollout.
 
+## One-shot LinkedIn search probe
+
+Build the executable jar, then run one bounded JobSpy search with the same API and
+JobSpy environment configuration as the scraper:
+
+```sh
+./gradlew bootJar -PappVersion=probe
+java -jar build/libs/job-hunter-scraper-probe.jar \
+  --probe-linkedin \
+  --probe.category='operations assistant' \
+  --probe.location=Worldwide \
+  --probe.remote-only=true \
+  --probe.limit=5 \
+  --probe.hours-old=24
+```
+
+Set `JOB_HUNTER_API_URL` and the normal machine credentials in the environment;
+configure a local JobSpy endpoint with `SCRAPER_ENDPOINTS_LINKEDIN` if needed. Never
+pass credentials as CLI options. The CLI fetches one proxy from
+`/proxies?source=linkedin` and makes one `/jobs/search` request. It does not claim a
+run, enrich details, ingest jobs, or update checkpoints, even if `SCRAPER_ENABLED=true`.
+The JSON result reports `SAMPLE_RETURNED`, `EMPTY`, `RATE_LIMITED`, or
+`UPSTREAM_ERROR`. An empty sample does not validate the location filter, and a
+`Worldwide` search does not prove that employers accept applicants in every
+country. See [operations](docs/operations.md) for result interpretation.
+
 ## Sources
 
 | ID | Transport |

@@ -49,6 +49,10 @@ Use Java 21. The worker is disabled unless explicitly configured.
 ## Operations
 
 Read the README and operations guide before changing configuration or deployment.
+For LinkedIn search-filter checks, run the bounded one-shot probe documented in
+the README before waiting for a scheduled run or changing criteria. Report the
+requested filters and sampled job locations; treat empty and rate-limited results
+as inconclusive, and verify hiring eligibility from individual postings.
 Use the existing GitOps deployment and observability stack. Keep trace context
 across execution and HTTP boundaries. Run IDs belong in logs and traces, not
 metric labels. Update source behavior and operator instructions with code.

@@ -34,6 +34,27 @@ class LinkedInAdapter(
     override val source = JobSource.LINKEDIN
     private val searchCache = AtomicReference<Pair<ScrapeContext, List<JsonNode>>?>()
 
+    fun probeSearch(
+        category: String,
+        location: String,
+        remoteOnly: Boolean,
+        limit: Int,
+        hoursOld: Int,
+    ): List<ScrapedJob> {
+        require(limit in 1..10 && hoursOld in 1..168)
+        val proxy = jobHunterClient.probeProxy(source)
+        val endpoint = properties.endpoint(source, DEFAULT_ENDPOINT).removeSuffix("/")
+        val jobs =
+            parseSearch(
+                httpClient.post(
+                    "$endpoint/jobs/search",
+                    searchBody(category, location, remoteOnly, 0, listOf(proxy), limit, hoursOld),
+                ),
+            )
+        if (jobs.size > limit) throw SourceSchemaException("LinkedIn probe returned more than the requested limit")
+        return jobs.map { parseCandidate(it, category) }
+    }
+
     override fun fetch(context: ScrapeContext): ScrapePage {
         if (context.criteria.categories.isEmpty()) return ScrapePage(emptyList(), emptyMap(), complete = true)
         val locations = context.criteria.locations.ifEmpty { listOf("") }
@@ -115,6 +136,8 @@ class LinkedInAdapter(
         remoteOnly: Boolean,
         offset: Int,
         proxies: List<SourceProxy>,
+        limit: Int = PAGE_SIZE,
+        hoursOld: Int = MIN_HOURS_OLD,
     ): Map<String, Any> =
         mapOf(
             "site" to "linkedin",
@@ -122,9 +145,9 @@ class LinkedInAdapter(
             "location" to location,
             "proxies" to proxies.map(SourceProxy::url),
             "is_remote" to remoteOnly,
-            "results_wanted" to PAGE_SIZE,
+            "results_wanted" to limit,
             "offset" to offset,
-            "hours_old" to MIN_HOURS_OLD,
+            "hours_old" to hoursOld,
             "description_format" to "markdown",
             "linkedin_fetch_description" to false,
         )
